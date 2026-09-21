@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --background: #020617;
+  --foreground: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@keyframes reel-spin {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes reel-land {
+  from {
+    transform: translateY(-12px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes marquee-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes led-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.reel-strip-spin {
+  animation: reel-spin 0.38s linear infinite;
+  will-change: transform;
+}
+
+.reel-land {
+  animation: reel-land 0.18s ease-out;
+}
+
+.marquee-pulse {
+  animation: marquee-pulse 2.6s ease-in-out infinite;
+}
+
+.led-flash {
+  animation: led-flash 0.5s ease-in-out infinite;
+}
+
+@keyframes cabinet-pulse-subtle {
+  0%,
+  100% {
+    box-shadow: 0 0 18px rgba(251, 191, 36, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(251, 191, 36, 0.28);
+  }
+}
+
+@keyframes cabinet-pulse-strong {
+  0%,
+  100% {
+    box-shadow: 0 0 24px rgba(249, 115, 22, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 44px rgba(249, 115, 22, 0.45);
+  }
+}
+
+@keyframes cabinet-pulse-full {
+  0%,
+  100% {
+    box-shadow: 0 0 30px rgba(251, 191, 36, 0.3), 0 0 60px rgba(251, 191, 36, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 55px rgba(251, 191, 36, 0.55), 0 0 90px rgba(251, 191, 36, 0.3);
+  }
+}
+
+.cabinet-pulse-subtle {
+  animation: cabinet-pulse-subtle 3s ease-in-out infinite;
+}
+
+.cabinet-pulse-strong {
+  animation: cabinet-pulse-strong 1.4s ease-in-out infinite;
+}
+
+.cabinet-pulse-full {
+  animation: cabinet-pulse-full 0.7s ease-in-out infinite;
+}
