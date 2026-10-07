@@ -42,9 +42,8 @@ export default function EventButtons({ onFire, loadingEvent }: EventButtonsProps
             type="button"
             disabled={loadingEvent !== null}
             onClick={() => onFire({ event_type: eventType, ...preset })}
-            className={`group rounded-lg border bg-black/30 px-3 py-2.5 text-left transition-all duration-150 hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 ${style.border}`}
+            className={`group min-w-0 rounded-lg border bg-black/30 px-3 py-2.5 text-left transition-all duration-150 hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 ${style.border}`}
           >
-
             <span className="flex items-center justify-between gap-1.5">
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${busy ? "led-flash " : ""}${style.dot}`} />
               <span className="font-mono text-[9px] text-zinc-600">

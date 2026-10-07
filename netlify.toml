@@ -1,0 +1,14 @@
+# Netlify deployment for the Experience Engine online demo.
+#
+# The whole game ships as ONE Next.js app: the presentation frontend plus a
+# TypeScript port of the Experience Engine served from app/api/ route handlers
+# (no separate Python host needed online). Local development still runs the
+# Python middleware via launch.bat's ENGINE_URL rewrite.
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

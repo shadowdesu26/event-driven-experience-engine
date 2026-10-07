@@ -10,7 +10,7 @@ GRIP event examples, and the allocation matrix.
 
 ```bash
 npm install
-npm run dev    # http://localhost:3000 (proxies /api/* to the middleware on :8000)
+npm run dev    # launch.bat picks the port (39731+); or explicit: npm run dev -- --port 39731
 npm run build  # type-check + production build
 ```
 

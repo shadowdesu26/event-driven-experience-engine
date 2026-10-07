@@ -16,6 +16,26 @@ _DEFAULT_ROOT = Path(__file__).resolve().parent.parent / "frontend" / "public"
 
 VIDEO_EXTENSIONS: frozenset[str] = frozenset({".mp4", ".webm", ".ogg", ".m4v", ".mov"})
 
+AUDIO_EXTENSIONS: frozenset[str] = frozenset(
+    {".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac"}
+)
+
+# Optional per-theme subdirectory holding looping background music beds. A theme
+# without one still works: the frontend synthesizes the bed instead.
+BED_SUBDIR = "bed"
+
+# Keywords that mark a video as usable under a close-call suspense program.
+# Deliberately separate from KEYWORD_PRIORITY: a suspense sting has no GRIP
+# event type of its own, and folding these into the event catalog would let
+# them shadow a real event's base asset.
+SUSPENSE_KEYWORDS: tuple[str, ...] = (
+    "close_call",
+    "closecall",
+    "suspense",
+    "heartbeat",
+    "tension",
+)
+
 # Multiplier tier suffix convention: wuxia_big_win_25x.mp4 -> BIG_WIN @ 25x tier.
 TIER_SUFFIX_RE = re.compile(r"_(\d+)x$")
 
@@ -40,7 +60,13 @@ _SAFE_THEME_RE = re.compile(r"[A-Za-z0-9_-]+")
 # rescan, so renamed or swapped files are picked up without a restart.
 _scan_cache: dict[str, tuple[float, dict]] = {}
 
+# theme -> (bed directory mtime at scan time, bed catalog). Tracked separately
+# because beds live in a child directory and change independently.
+_bed_cache: dict[str, tuple[float, dict]] = {}
+
 _EMPTY_CATALOG: dict = {"base": {}, "tiers": {}, "files": []}
+
+_EMPTY_BED_CATALOG: dict = {"beds": []}
 
 
 def assets_root() -> Path:
@@ -116,6 +142,70 @@ def scan_theme_assets(theme: str) -> dict:
 
     _scan_cache[theme] = (mtime, catalog)
     return catalog
+
+
+def resolve_suspense_asset(theme: str, fallback: str = "") -> str:
+    """Best matching tension sting for a close-call suspense program.
+
+    Scans the theme's video files for suspense keywords and returns the first
+    match. Returns ``fallback`` when the theme ships no dedicated sting, which
+    keeps the near-win tension video as the visual bed for close calls.
+    """
+    catalog = scan_theme_assets(theme)
+    for path in catalog["files"]:
+        stem = normalize_name(Path(path).name)
+        if any(keyword in stem for keyword in SUSPENSE_KEYWORDS):
+            return path
+    return fallback
+
+
+def scan_bed_assets(theme: str) -> dict:
+    """Index looping background music beds under ``<assets_root>/<theme>/bed``.
+
+    Returns ``{"beds": [url_path, ...]}``, sorted so selection is deterministic.
+    A missing directory yields an empty list rather than an error: the bed is
+    optional and the frontend can synthesize it.
+    """
+    directory = assets_root() / theme / BED_SUBDIR
+    try:
+        mtime = directory.stat().st_mtime
+    except OSError:
+        return _EMPTY_BED_CATALOG
+
+    cached = _bed_cache.get(theme)
+    if cached and cached[0] == mtime:
+        return cached[1]
+
+    catalog: dict = {"beds": []}
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError:
+        _bed_cache[theme] = (mtime, dict(_EMPTY_BED_CATALOG))
+        return _bed_cache[theme][1]
+
+    for entry in entries:
+        if not entry.is_file() or entry.suffix.lower() not in AUDIO_EXTENSIONS:
+            continue
+        catalog["beds"].append(f"/{theme}/{BED_SUBDIR}/{entry.name}")
+
+    _bed_cache[theme] = (mtime, catalog)
+    return catalog
+
+
+def resolve_bed_asset(theme: str, fallback: str = "") -> str:
+    """Background music bed path for a theme, or ``fallback`` when unshipped.
+
+    Prefers a file literally named ``bed`` or ``ambient`` so a theme's
+    always-on loop wins over a one-off sting that happens to be in the folder.
+    """
+    beds = scan_bed_assets(theme)["beds"]
+    if not beds:
+        return fallback
+    for path in beds:
+        stem = Path(path).stem.lower()
+        if stem in ("bed", "ambient", "loop", "drone"):
+            return path
+    return beds[0]
 
 
 def resolve_asset(

@@ -73,44 +73,100 @@ body {
   animation: led-flash 0.5s ease-in-out infinite;
 }
 
-@keyframes cabinet-pulse-subtle {
+/*
+ * Cabinet rim glow — the engine's light_program rendered as a thin colored
+ * ring plus a soft border glow. Deliberately NOT the old full-cabinet wash:
+ * intensity is clamped by the component (--rim-peak <= 0.5) and the pattern
+ * classes only animate opacity. `pattern: none` leaves the rim dark.
+ */
+.rim-light {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rim-color, #fbbf24) calc(var(--rim-peak, 0) * 100%), transparent),
+    0 0 calc(6px + var(--rim-peak, 0) * 10px) color-mix(in srgb, var(--rim-color, #fbbf24) calc(var(--rim-peak, 0) * 70%), transparent);
+}
+
+.rim-breathe {
+  animation: rim-breathe var(--rim-period, 2400ms) ease-in-out infinite;
+}
+
+.rim-pulse {
+  animation: rim-pulse var(--rim-period, 1400ms) ease-in-out infinite;
+}
+
+.rim-flash-soft {
+  animation: rim-flash-soft var(--rim-period, 900ms) ease-in-out infinite;
+}
+
+.rim-flash-hard {
+  animation: rim-flash-hard var(--rim-period, 560ms) steps(2, end) infinite;
+}
+
+.rim-flash-strobe {
+  animation: rim-flash-strobe var(--rim-period, 300ms) steps(2, end) infinite;
+}
+
+.rim-flare {
+  animation: rim-flare 520ms cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+@keyframes rim-breathe {
   0%,
   100% {
-    box-shadow: 0 0 18px rgba(251, 191, 36, 0.12);
+    opacity: 0.25;
   }
   50% {
-    box-shadow: 0 0 30px rgba(251, 191, 36, 0.28);
+    opacity: 1;
   }
 }
 
-@keyframes cabinet-pulse-strong {
+@keyframes rim-pulse {
   0%,
   100% {
-    box-shadow: 0 0 24px rgba(249, 115, 22, 0.2);
+    opacity: 0.35;
   }
   50% {
-    box-shadow: 0 0 44px rgba(249, 115, 22, 0.45);
+    opacity: 1;
   }
 }
 
-@keyframes cabinet-pulse-full {
+@keyframes rim-flash-soft {
   0%,
   100% {
-    box-shadow: 0 0 30px rgba(251, 191, 36, 0.3), 0 0 60px rgba(251, 191, 36, 0.15);
+    opacity: 0.45;
   }
   50% {
-    box-shadow: 0 0 55px rgba(251, 191, 36, 0.55), 0 0 90px rgba(251, 191, 36, 0.3);
+    opacity: 1;
   }
 }
 
-.cabinet-pulse-subtle {
-  animation: cabinet-pulse-subtle 3s ease-in-out infinite;
+@keyframes rim-flash-hard {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.15;
+  }
 }
 
-.cabinet-pulse-strong {
-  animation: cabinet-pulse-strong 1.4s ease-in-out infinite;
+@keyframes rim-flash-strobe {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.08;
+  }
 }
 
-.cabinet-pulse-full {
-  animation: cabinet-pulse-full 0.7s ease-in-out infinite;
+@keyframes rim-flare {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }

@@ -5,7 +5,7 @@ This directory now contains the Simulated LT Game Backend (game_engine.py & simu
 
 To launch the Experience Engine middleware:
     cd ../middleware
-    python -m uvicorn main:app --reload --port 8000
+    python -m uvicorn main:app --reload --port 39107   (launch.bat picks the real port)
 
 To simulate LT Game EGM spin events:
     python simulate_events.py --spin
@@ -13,4 +13,4 @@ To simulate LT Game EGM spin events:
 
 if __name__ == "__main__":
     print("Experience Engine middleware has moved to '../middleware/'.")
-    print("Run: cd ../middleware && python -m uvicorn main:app --reload --port 8000")
+    print("Run: cd ../middleware && python -m uvicorn main:app --reload --port 39107")

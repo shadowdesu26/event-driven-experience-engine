@@ -2,17 +2,28 @@
 
 import { useCallback, useRef, useState } from "react";
 
-import { EVENT_TYPES, type EventType, type GripEventInput } from "@/app/lib/api";
+import { EVENT_TYPES, type EventType, type GripEventInput, type LightProgram } from "@/app/lib/api";
+import { playPlainLoss, playPlainReelTick, playPlainWin, playReelLand } from "@/app/lib/experience";
+import { plainStingDirection } from "@/app/lib/plain";
 
 type SlotSymbol = "7" | "BAR" | "🍒" | "🍋" | "🍇" | "🔔" | "⭐" | "💎";
 
 const SYMBOLS: SlotSymbol[] = ["7", "BAR", "🍒", "🍋", "🍇", "🔔", "⭐", "💎"];
 
 const SPIN_BASE_MS = 900;
-const REEL_STAGGER_MS = 160;
+// 0.75 seconds between reel stops: every reel's landing voice gets its own
+// moment in the mix while keeping the whole spin snappy.
+const REEL_STAGGER_MS = 750;
 const REEL_COUNT = 5;
 const REEL_HEIGHT = 144;
 const CELL_HEIGHT = 48;
+
+// When each cabinet reel stops. Sent to the middleware so its suspense cue ladder
+// is anchored to the real reel beats rather than guessed wall-clock timings.
+const REEL_STOP_MS = Array.from(
+  { length: REEL_COUNT },
+  (_, i) => SPIN_BASE_MS + i * REEL_STAGGER_MS,
+);
 
 const EVENT_TICKERS: Record<EventType, string> = {
   GAME_START: "GOOD LUCK, PLAYER ONE",
@@ -152,7 +163,7 @@ function SlotSymbolView({ symbol }: { symbol: SlotSymbol }) {
 function Reel({ reel, index }: { reel: ReelView; index: number }) {
   return (
     <div
-      className="relative overflow-hidden rounded-lg border border-stone-400/70 bg-gradient-to-r from-stone-300 via-white to-stone-300 shadow-[inset_0_14px_22px_rgba(0,0,0,0.35),inset_0_-14px_22px_rgba(0,0,0,0.35),inset_10px_0_14px_rgba(0,0,0,0.12),inset_-10px_0_14px_rgba(0,0,0,0.12)]"
+      className="relative min-w-0 overflow-hidden rounded-lg border border-stone-400/70 bg-gradient-to-r from-stone-300 via-white to-stone-300 shadow-[inset_0_14px_22px_rgba(0,0,0,0.35),inset_0_-14px_22px_rgba(0,0,0,0.35),inset_10px_0_14px_rgba(0,0,0,0.12),inset_-10px_0_14px_rgba(0,0,0,0.12)]"
       style={{ height: REEL_HEIGHT }}
     >
       {reel.spinning ? (
@@ -198,9 +209,11 @@ function LedScreen({
   value: string;
   accent?: boolean;
 }) {
-  const color = accent ? "text-amber-400 [text-shadow:0_0_10px_rgba(251,191,36,0.7)]" : "text-red-500 [text-shadow:0_0_10px_rgba(239,68,68,0.75)]";
+  const color = accent
+    ? "text-amber-400 [text-shadow:0_0_10px_rgba(251,191,36,0.7)]"
+    : "text-red-500 [text-shadow:0_0_10px_rgba(239,68,68,0.75)]";
   return (
-    <div className="flex-1 rounded-md border border-red-900/70 bg-black px-3 py-1.5 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95),0_1px_0_rgba(255,255,255,0.06)]">
+    <div className="min-w-0 flex-1 rounded-md border border-red-900/70 bg-black px-3 py-1.5 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95),0_1px_0_rgba(255,255,255,0.06)]">
       <p className={`font-mono text-[9px] tracking-[0.28em] ${color} opacity-70`}>{label}</p>
       <p className={`font-mono text-lg leading-tight font-bold tabular-nums ${color}`}>{value}</p>
     </div>
@@ -209,8 +222,8 @@ function LedScreen({
 
 function LedTicker({ message, active }: { message: string; active: boolean }) {
   return (
-    <div className="flex-[1.4] rounded-md border border-red-900/70 bg-black px-3 py-1.5 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95),0_1px_0_rgba(255,255,255,0.06)]">
-      <p className={`font-mono text-[9px] tracking-[0.28em] text-red-500 [text-shadow:0_0_10px_rgba(239,68,68,0.75)] opacity-70`}>
+    <div className="min-w-0 flex-[1.4] rounded-md border border-red-900/70 bg-black px-3 py-1.5 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95),0_1px_0_rgba(255,255,255,0.06)]">
+      <p className="font-mono text-[9px] tracking-[0.28em] text-red-500 [text-shadow:0_0_10px_rgba(239,68,68,0.75)] opacity-70">
         MESSAGE
       </p>
       <p
@@ -223,7 +236,8 @@ function LedTicker({ message, active }: { message: string; active: boolean }) {
 }
 
 function CabinetScrews() {
-  const screw = "absolute h-2.5 w-2.5 rounded-full bg-gradient-to-br from-zinc-300 via-zinc-500 to-zinc-700 shadow-[inset_0_-1px_1px_rgba(0,0,0,0.6)]";
+  const screw =
+    "absolute h-2.5 w-2.5 rounded-full bg-gradient-to-br from-zinc-300 via-zinc-500 to-zinc-700 shadow-[inset_0_-1px_1px_rgba(0,0,0,0.6)]";
   return (
     <>
       <span className={`${screw} top-2.5 left-2.5`} />
@@ -236,10 +250,15 @@ function CabinetScrews() {
 
 interface SlotMachineProps {
   onFire: (eventInput: GripEventInput) => void;
+  onProbe: (eventInput: GripEventInput) => void;
   busy: boolean;
+  /** Engine off: reels answer with the plain player's uniform tick. */
+  engineOn: boolean;
+  /** The engine's lighting program — rendered as a subtle rim glow only. */
+  light: LightProgram;
 }
 
-export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
+export default function SlotMachine({ onFire, onProbe, busy, engineOn, light }: SlotMachineProps) {
   const [reels, setReels] = useState<ReelView[]>(() =>
     INITIAL_REELS.map((cells) => ({
       spinning: false,
@@ -254,6 +273,13 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
   const [ticker, setTicker] = useState("INSERT COIN — PRESS SPIN");
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
+  // One seat id per tab, so pacing state never bleeds between players.
+  const [sessionId] = useState<string>(() =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `seat-${Math.random().toString(36).slice(2, 10)}`,
+  );
+
   const clearPending = useCallback(() => {
     timeoutsRef.current.forEach(clearTimeout);
     timeoutsRef.current = [];
@@ -264,6 +290,9 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
 
     const eventType = SPIN_POOL[Math.floor(Math.random() * SPIN_POOL.length)];
     const resultCells = buildResultCells(eventType);
+    const spinId = crypto.randomUUID();
+    const payout = EVENT_PAYOUTS[eventType] * (bet / 25);
+    const centerLineSymbols = resultCells.map((cells) => String(cells[1]));
 
     setSpinning(true);
     setTicker("REELS IN MOTION…");
@@ -276,10 +305,36 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
       })),
     );
 
+    // Probe the middleware the moment the outcome is known but the cabinet is
+    // still turning. It replies with a suspense ladder anchored to the reel stop
+    // offsets below, so the heartbeat and light flash run right up to the final
+    // reel landing. Streak and cadence state are left untouched by the probe.
+    onProbe({
+      event_type: eventType,
+      game_id: "SLOT-WUXIA-01",
+      theme: "wuxia",
+      session_id: sessionId,
+      bet_amount: bet,
+      win_amount: payout,
+      symbols: centerLineSymbols,
+      win_level: payout >= 1000 ? "JACKPOT" : payout >= 250 ? "HIGH" : payout > 0 ? "MEDIUM" : "NONE",
+      event_id: spinId,
+      timestamp: new Date().toISOString(),
+      spin_phase: "reels_spinning",
+      reel_stop_ms: REEL_STOP_MS,
+    });
+
     for (let i = 0; i < REEL_COUNT; i++) {
       const delay = SPIN_BASE_MS + i * REEL_STAGGER_MS;
       timeoutsRef.current.push(
         setTimeout(() => {
+          // Engine on: each reel answers its own stop with its tiered depth
+          // voice, heard reel by reel. Engine off: one uniform tick, always.
+          if (engineOn) {
+            playReelLand(resultCells[i][1]);
+          } else {
+            playPlainReelTick();
+          }
           setReels((prev) =>
             prev.map((reel, idx) =>
               idx === i
@@ -295,34 +350,57 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
       setTimeout(() => {
         setSpinning(false);
         setTicker(EVENT_TICKERS[eventType]);
-        const payout = EVENT_PAYOUTS[eventType] * (bet / 25);
         setCredit((c) => c + payout);
-        const centerLineSymbols = resultCells.map((cells) => String(cells[1]));
+        // Engine off: the plain player's only resolve sound is one canned
+        // win/loss beep, chosen by a two-branch if/else. No tiers, no bed.
+        if (!engineOn) {
+          if (plainStingDirection(eventType) === "win") {
+            playPlainWin();
+          } else {
+            playPlainLoss();
+          }
+        }
         onFire({
           event_type: eventType,
           game_id: "SLOT-WUXIA-01",
           theme: "wuxia",
+          session_id: sessionId,
           bet_amount: bet,
           win_amount: payout,
           symbols: centerLineSymbols,
           win_level: payout >= 1000 ? "JACKPOT" : payout >= 250 ? "HIGH" : payout > 0 ? "MEDIUM" : "NONE",
+          event_id: spinId,
+          timestamp: new Date().toISOString(),
+          spin_phase: "resolved",
         });
       }, SPIN_BASE_MS + (REEL_COUNT - 1) * REEL_STAGGER_MS + 120),
     );
-  }, [spinning, busy, bet, onFire]);
+  }, [spinning, busy, bet, sessionId, engineOn, onFire, onProbe]);
+
+  // Cabinet rim glow: the middleware's light programs drive a thin colored
+  // ring + soft border glow — never the full-cabinet flash. Intensity is
+  // clamped low so even a strobe ladder stays subtle.
+  const rimColor =
+    light.color === "sky" ? "#38bdf8" : light.color === "indigo" ? "#818cf8" : "#fbbf24";
+  const rimStyle = {
+    "--rim-color": rimColor,
+    "--rim-peak": Math.min(0.5, Math.max(0, light.intensity)).toFixed(3),
+    "--rim-period": `${Math.max(200, light.period_ms || 1400)}ms`,
+  } as React.CSSProperties;
+  const rimClass = light.pattern && light.pattern !== "none" ? `rim-${light.pattern}` : "";
 
   return (
-    <div className="relative flex h-full flex-col overflow-y-auto rounded-[1.6rem] border border-red-500/40 bg-gradient-to-b from-red-900 via-red-950 to-red-900 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_18px_45px_rgba(0,0,0,0.6)]">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden rounded-[1.6rem] border border-red-500/40 bg-gradient-to-b from-red-900 via-red-950 to-red-900 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_18px_45px_rgba(0,0,0,0.6)]">
       <CabinetScrews />
 
-      <div className="flex h-full flex-col gap-3 rounded-2xl border-2 border-red-500 bg-gradient-to-b from-zinc-900 to-zinc-950 p-3.5 shadow-[inset_0_0_34px_rgba(0,0,0,0.9)] md:p-4">
-        <div className="marquee-pulse rounded-lg border border-amber-500/40 bg-gradient-to-b from-red-800 to-red-950 px-4 py-2 text-center shadow-[inset_0_-4px_10px_rgba(0,0,0,0.5)]">
+      <div className="flex min-h-0 flex-col gap-3 rounded-2xl border-2 border-red-500 bg-gradient-to-b from-zinc-900 to-zinc-950 p-3.5 shadow-[inset_0_0_34px_rgba(0,0,0,0.9)] md:p-4">
+        <div className="marquee-pulse shrink-0 rounded-lg border border-amber-500/40 bg-gradient-to-b from-red-800 to-red-950 px-4 py-2 text-center shadow-[inset_0_-4px_10px_rgba(0,0,0,0.5)]">
           <p className="text-sm font-black tracking-[0.32em] text-amber-300 [text-shadow:0_0_16px_rgba(251,191,36,0.65),0_2px_0_rgba(120,53,15,0.9)] md:text-base">
             ★ FORTUNE ENGINE ★
           </p>
         </div>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <div className="grid grid-cols-5 gap-2 rounded-xl border border-red-950/80 bg-red-950/50 p-2 shadow-[inset_0_4px_12px_rgba(0,0,0,0.7)] md:gap-2.5">
             {reels.map((reel, i) => (
               <Reel key={i} reel={reel} index={i} />
@@ -333,17 +411,17 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-2">
           <LedScreen label="TOTAL BET" value={String(bet).padStart(4, "0")} />
           <LedTicker message={ticker} active={spinning} />
           <LedScreen label="CREDIT" value={String(credit).padStart(6, "0")} accent />
         </div>
 
-        <div className="mt-auto flex items-stretch gap-2.5 pt-1">
+        <div className="mt-auto flex min-w-0 shrink-0 items-stretch gap-2.5 pt-1">
           <button
             type="button"
             onClick={() => setTicker("8 GRIP EVENTS → POST /api/grip-event")}
-            className="rounded-lg border border-zinc-400/60 bg-gradient-to-b from-zinc-200 to-zinc-400 px-3.5 pb-1.5 text-xs font-black tracking-widest text-zinc-800 uppercase shadow-[0_4px_0_#52525b,0_8px_14px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-100 hover:from-zinc-100 hover:to-zinc-300 active:translate-y-[3px] active:shadow-[0_1px_0_#52525b,inset_0_1px_0_rgba(255,255,255,0.9)] active:scale-95"
+            className="shrink-0 rounded-lg border border-zinc-400/60 bg-gradient-to-b from-zinc-200 to-zinc-400 px-3.5 pb-1.5 text-xs font-black tracking-widest text-zinc-800 uppercase shadow-[0_4px_0_#52525b,0_8px_14px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-100 hover:from-zinc-100 hover:to-zinc-300 active:translate-y-[3px] active:shadow-[0_1px_0_#52525b,inset_0_1px_0_rgba(255,255,255,0.9)] active:scale-95"
           >
             Info
           </button>
@@ -353,7 +431,7 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
               setBet(BET_OPTIONS[2]);
               setTicker("MAX BET ENGAGED — 100");
             }}
-            className="rounded-lg border border-zinc-500/60 bg-gradient-to-b from-zinc-400 to-zinc-600 px-3.5 pb-1.5 text-xs font-black tracking-widest text-zinc-100 uppercase shadow-[0_4px_0_#3f3f46,0_8px_14px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.55)] transition-all duration-100 hover:from-zinc-300 hover:to-zinc-500 active:translate-y-[3px] active:shadow-[0_1px_0_#3f3f46,inset_0_1px_0_rgba(255,255,255,0.55)] active:scale-95"
+            className="shrink-0 rounded-lg border border-zinc-500/60 bg-gradient-to-b from-zinc-400 to-zinc-600 px-3.5 pb-1.5 text-xs font-black tracking-widest text-zinc-100 uppercase shadow-[0_4px_0_#3f3f46,0_8px_14px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.55)] transition-all duration-100 hover:from-zinc-300 hover:to-zinc-500 active:translate-y-[3px] active:shadow-[0_1px_0_#3f3f46,inset_0_1px_0_rgba(255,255,255,0.55)] active:scale-95"
           >
             Max&nbsp;Bet
           </button>
@@ -362,7 +440,7 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
             type="button"
             onClick={handleSpin}
             disabled={spinning || busy}
-            className="group relative flex-1 overflow-hidden rounded-xl border border-green-300/60 bg-gradient-to-b from-green-400 to-green-600 pb-1.5 shadow-[0_6px_0_#15803d,0_14px_26px_rgba(34,197,94,0.35),inset_0_2px_0_rgba(255,255,255,0.55)] transition-all duration-100 hover:from-green-300 hover:to-green-500 active:translate-y-[4px] active:shadow-[0_2px_0_#15803d,inset_0_2px_0_rgba(255,255,255,0.55)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
+            className="group relative min-w-0 flex-1 overflow-hidden rounded-xl border border-green-300/60 bg-gradient-to-b from-green-400 to-green-600 pb-1.5 shadow-[0_6px_0_#15803d,0_14px_26px_rgba(34,197,94,0.35),inset_0_2px_0_rgba(255,255,255,0.55)] transition-all duration-100 hover:from-green-300 hover:to-green-500 active:translate-y-[4px] active:shadow-[0_2px_0_#15803d,inset_0_2px_0_rgba(255,255,255,0.55)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
           >
             <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/35 to-transparent" />
             <span className="relative block text-xl font-black tracking-[0.35em] text-white uppercase [text-shadow:0_2px_0_rgba(20,83,45,0.8)] md:text-2xl">
@@ -374,6 +452,9 @@ export default function SlotMachine({ onFire, busy }: SlotMachineProps) {
           </button>
         </div>
       </div>
+
+      {/* Cabinet rim glow — the engine's light program, kept subtle. */}
+      <div aria-hidden className={`rim-light rounded-[1.6rem] ${rimClass}`} style={rimStyle} />
     </div>
   );
 }

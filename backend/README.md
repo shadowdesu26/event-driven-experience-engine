@@ -6,7 +6,7 @@ In production, this represents the physical or remote gaming machine that execut
 
 ## Files
 - `game_engine.py` — RNG reel outcome generator, paytables, and symbol evaluation.
-- `simulate_events.py` — CLI tool to dispatch simulated GRIP events to the Experience Engine middleware (`POST http://127.0.0.1:8000/api/grip-event`).
+- `simulate_events.py` — CLI tool to dispatch simulated GRIP events to the Experience Engine middleware. It auto-follows the launcher's random port pick (`%TEMP%\ee_middleware_port.txt`, fallback 39107, the unassigned dynamic-range port `launch.bat` uses) via `--endpoint`, which overrides both.
 
 ## CLI Usage
 
