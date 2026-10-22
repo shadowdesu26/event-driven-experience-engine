@@ -126,6 +126,15 @@ SCENARIOS: list[tuple[str, list[tuple]]] = [
             ("SPIN_RESULT", "resolved", 50, 25, ["🍒", "🍒", "🍇", "🔔", "BAR"], 6, 0),
         ],
     ),
+    (
+        "count-up pacing tiers (jackpot count + duck)",
+        [
+            ("GAME_START", "resolved", 0, 25, ["🍒", "7", "BAR", "⭐", "💎"], 0, 0),
+            ("SPIN_RESULT", "resolved", 10, 25, ["🍒", "🍒", "🍇", "🔔", "BAR"], 3, 0),
+            ("SPIN_RESULT", "resolved", 50, 25, ["🍒", "🍒", "🍇", "🔔", "BAR"], 6, 0),
+            ("JACKPOT", "resolved", 2500, 25, ["7"] * 5, 9, 0),
+        ],
+    ),
 ]
 
 
@@ -289,6 +298,7 @@ def main() -> int:
             diff("ambient_path", py_response.get("ambient_path"), ts_response.get("ambient_path"), 0, problems)
             diff("ambient_volume", py_response.get("ambient_volume"), ts_response.get("ambient_volume"), tolerance_for("bedtrack_volume"), problems)
             diff("duck", py_response.get("duck"), ts_response.get("duck"), 0, problems)
+            diff("count_up", py_response.get("count_up"), ts_response.get("count_up"), 0.011, problems)
             diff("net_profit", py_response.get("net_profit"), ts_response.get("net_profit"), 0.011, problems)
             diff("is_true_profit", py_response.get("is_true_profit"), ts_response.get("is_true_profit"), 0, problems)
             diff("tempo", py_response.get("tempo"), ts_response.get("tempo"), 0, problems)

@@ -17,7 +17,7 @@ from models import GripEvent, GripResponse
 from router import route_event
 from session import list_sessions, reset_session, session_key
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 app = FastAPI(title="Experience Engine Middleware", version=VERSION)
 
@@ -140,6 +140,7 @@ def grip_event(event: GripEvent) -> GripResponse:
         ambient_path=routed.get("ambient_path", ""),
         ambient_volume=routed.get("ambient_volume", 0.0),
         duck=routed.get("duck"),
+        count_up=routed.get("count_up"),
         net_profit=routed.get("net_profit", (event.win_amount or 0.0) - (event.bet_amount or 25.0)),
         is_true_profit=routed.get("is_true_profit", False),
         tempo=routed.get("tempo", "steady"),

@@ -280,6 +280,8 @@ export default function Home() {
                 busy={loadingEvent !== null}
                 engineOn={engineOn}
                 light={light}
+                resolvedDirective={response}
+                directiveSeq={playbackKey}
               />
             </div>
           </section>

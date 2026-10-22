@@ -1,9 +1,23 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { EVENT_TYPES, type EventType, type GripEventInput, type LightProgram } from "@/app/lib/api";
-import { playPlainLoss, playPlainReelTick, playPlainWin, playReelLand } from "@/app/lib/experience";
+import {
+  EVENT_TYPES,
+  type CountUpSpec,
+  type EventType,
+  type GripEventInput,
+  type GripResponse,
+  type LightProgram,
+} from "@/app/lib/api";
+import {
+  cancelCoinCount,
+  playCoinCount,
+  playPlainLoss,
+  playPlainReelTick,
+  playPlainWin,
+  playReelLand,
+} from "@/app/lib/experience";
 import { plainStingDirection } from "@/app/lib/plain";
 
 type SlotSymbol = "7" | "BAR" | "🍒" | "🍋" | "🍇" | "🔔" | "⭐" | "💎";
@@ -52,6 +66,13 @@ const EVENT_PAYOUTS: Record<EventType, number> = {
 const SPIN_POOL: EventType[] = EVENT_TYPES.filter((t) => t !== "WIN_STREAK");
 
 const BET_OPTIONS = [25, 50, 100] as const;
+
+// Fallback pacing when a directive arrives without one (older engine build).
+const DEFAULT_COUNT_UP: CountUpSpec = { duration_ms: 2000, tick_hz: 12, pitch_scale: 1 };
+
+// If the middleware never answers a resolved spin, the stashed win lands
+// instantly anyway — the CREDIT meter must never hang on a network drop.
+const PENDING_WIN_FALLBACK_MS = 3000;
 
 interface ReelView {
   spinning: boolean;
@@ -256,9 +277,21 @@ interface SlotMachineProps {
   engineOn: boolean;
   /** The engine's lighting program — rendered as a subtle rim glow only. */
   light: LightProgram;
+  /** Latest resolved directive — carries the count-up pacing spec. */
+  resolvedDirective?: GripResponse | null;
+  /** Increments per resolved directive; pairs with resolvedDirective. */
+  directiveSeq?: number;
 }
 
-export default function SlotMachine({ onFire, onProbe, busy, engineOn, light }: SlotMachineProps) {
+export default function SlotMachine({
+  onFire,
+  onProbe,
+  busy,
+  engineOn,
+  light,
+  resolvedDirective,
+  directiveSeq,
+}: SlotMachineProps) {
   const [reels, setReels] = useState<ReelView[]>(() =>
     INITIAL_REELS.map((cells) => ({
       spinning: false,
@@ -280,6 +313,23 @@ export default function SlotMachine({ onFire, onProbe, busy, engineOn, light }: 
       : `seat-${Math.random().toString(36).slice(2, 10)}`,
   );
 
+  // --- credit meter + engine-paced count-up --------------------------------
+  //
+  // The middleware paces the credit count-up (2-3s window, tick rate and
+  // pitch keyed to the win tier). A win is stashed at reel-land and counted
+  // when the resolved directive arrives; a fallback lands it instantly if the
+  // directive never shows, so the meter never hangs.
+  const creditRef = useRef(5000);
+  const pendingWinRef = useRef<number | null>(null);
+  const pendingFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countRafRef = useRef(0);
+  const lastSeqRef = useRef(0);
+
+  const applyCredit = useCallback((value: number) => {
+    creditRef.current = value;
+    setCredit(value);
+  }, []);
+
   const clearPending = useCallback(() => {
     timeoutsRef.current.forEach(clearTimeout);
     timeoutsRef.current = [];
@@ -296,7 +346,7 @@ export default function SlotMachine({ onFire, onProbe, busy, engineOn, light }: 
 
     setSpinning(true);
     setTicker("REELS IN MOTION…");
-    setCredit((c) => Math.max(0, c - bet));
+    applyCredit(Math.max(0, creditRef.current - bet));
     setReels((prev) =>
       prev.map((reel) => ({
         ...reel,
@@ -350,7 +400,22 @@ export default function SlotMachine({ onFire, onProbe, busy, engineOn, light }: 
       setTimeout(() => {
         setSpinning(false);
         setTicker(EVENT_TICKERS[eventType]);
-        setCredit((c) => c + payout);
+        if (!engineOn || payout <= 0) {
+          // Plain player (or a nothing-spin): credits land instantly.
+          applyCredit(creditRef.current + payout);
+        } else {
+          // Engine-paced count-up: stash the win; it counts out when the
+          // middleware's pacing directive arrives.
+          pendingWinRef.current = payout;
+          if (pendingFallbackRef.current) clearTimeout(pendingFallbackRef.current);
+          pendingFallbackRef.current = setTimeout(() => {
+            const pending = pendingWinRef.current;
+            if (pending !== null) {
+              pendingWinRef.current = null;
+              applyCredit(creditRef.current + pending);
+            }
+          }, PENDING_WIN_FALLBACK_MS);
+        }
         // Engine off: the plain player's only resolve sound is one canned
         // win/loss beep, chosen by a two-branch if/else. No tiers, no bed.
         if (!engineOn) {
@@ -375,7 +440,55 @@ export default function SlotMachine({ onFire, onProbe, busy, engineOn, light }: 
         });
       }, SPIN_BASE_MS + (REEL_COUNT - 1) * REEL_STAGGER_MS + 120),
     );
-  }, [spinning, busy, bet, sessionId, engineOn, onFire, onProbe]);
+  }, [spinning, busy, bet, sessionId, engineOn, onFire, onProbe, applyCredit]);
+
+  // The middleware's count-up pacing drives the CREDIT meter: the stashed win
+  // counts up over the directive's window, with coin ticks keyed to the tier.
+  useEffect(() => {
+    if (!engineOn) return;
+    if (directiveSeq == null || directiveSeq <= lastSeqRef.current) return;
+    lastSeqRef.current = directiveSeq;
+
+    const pending = pendingWinRef.current;
+    if (pending == null || pending <= 0) return;
+    pendingWinRef.current = null;
+    if (pendingFallbackRef.current) {
+      clearTimeout(pendingFallbackRef.current);
+      pendingFallbackRef.current = null;
+    }
+
+    const spec = resolvedDirective?.count_up ?? DEFAULT_COUNT_UP;
+    const from = creditRef.current;
+    const to = from + pending;
+    const duration = Math.max(400, spec.duration_ms || DEFAULT_COUNT_UP.duration_ms);
+
+    cancelCoinCount();
+    playCoinCount({ ...spec, duration_ms: duration });
+    cancelAnimationFrame(countRafRef.current);
+
+    const startAt = performance.now();
+    const step = (nowMs: number) => {
+      const t = Math.min(1, (nowMs - startAt) / duration);
+      applyCredit(Math.round(from + (to - from) * t));
+      if (t < 1) {
+        countRafRef.current = requestAnimationFrame(step);
+      } else {
+        applyCredit(to);
+      }
+    };
+    countRafRef.current = requestAnimationFrame(step);
+  }, [resolvedDirective, directiveSeq, engineOn, applyCredit]);
+
+  // Teardown: pending spin timers, the count-up frame loop, and coin ticks.
+  useEffect(
+    () => () => {
+      clearPending();
+      cancelAnimationFrame(countRafRef.current);
+      if (pendingFallbackRef.current) clearTimeout(pendingFallbackRef.current);
+      cancelCoinCount();
+    },
+    [clearPending],
+  );
 
   // Cabinet rim glow: the middleware's light programs drive a thin colored
   // ring + soft border glow — never the full-cabinet flash. Intensity is

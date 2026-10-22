@@ -97,6 +97,8 @@ export async function POST(request: Request) {
     ambient_path: (routed.ambient_path as string) ?? "",
     ambient_volume: (routed.ambient_volume as number) ?? 0.0,
     duck: (routed.duck as { amount: number; duration_ms: number } | null) ?? null,
+    count_up:
+      (routed.count_up as { duration_ms: number; tick_hz: number; pitch_scale: number } | null) ?? null,
     net_profit: (routed.net_profit as number) ?? 0.0,
     is_true_profit: (routed.is_true_profit as boolean) ?? false,
     tempo: routed.tempo ?? "steady",

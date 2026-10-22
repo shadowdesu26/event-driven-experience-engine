@@ -949,6 +949,60 @@ function applyDuck(amount: number, durationMs: number) {
   }
 }
 
+// --- credit count-up ---------------------------------------------------------
+//
+// The middleware paces the coin count (a 2-3s window with tick rate and pitch
+// keyed to the win tier) so a win finishes counting on time instead of
+// dragging. Ticks are scheduled up front on the audio clock — locked to the
+// LED count-up with no setTimeout drift — and rise slightly in pitch as the
+// count climbs, the classic meter feel.
+
+let coinTrack: AudioTrack | null = null;
+
+/** Stop any running coin count immediately (quick-stop, engine off, teardown). */
+export function cancelCoinCount() {
+  if (coinTrack && audioCtx) {
+    fadeOutTrack(coinTrack, 0.04);
+  }
+  coinTrack = null;
+}
+
+/** Schedule the middleware-paced coin ticks across the count-up window. */
+export function playCoinCount(spec: { duration_ms: number; tick_hz: number; pitch_scale: number }) {
+  cancelCoinCount();
+  if (!engineGate) return;
+  const ctx = getAudioContext();
+  if (!ctx || !masterGain || spec.duration_ms <= 0 || spec.tick_hz <= 0) return;
+
+  const trackGain = ctx.createGain();
+  trackGain.gain.value = 1;
+  trackGain.connect(masterGain);
+  const track: AudioTrack = { gain: trackGain, oscillators: [] };
+  coinTrack = track;
+
+  const ticks = Math.max(1, Math.round((spec.tick_hz * spec.duration_ms) / 1000));
+  const interval = spec.duration_ms / 1000 / ticks;
+  const base = 1180 * Math.max(0.25, Math.min(2, spec.pitch_scale));
+  const peak = 0.07 * currentProfile.volume_scale;
+  const now = ctx.currentTime;
+
+  for (let i = 0; i < ticks; i += 1) {
+    const at = now + i * interval;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(base * (1 + 0.1 * (i / ticks)), at);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.linearRampToValueAtTime(Math.max(peak, 0.0002), at + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.07);
+    osc.connect(gain);
+    gain.connect(trackGain);
+    osc.start(at);
+    osc.stop(at + 0.09);
+    track.oscillators.push(osc);
+  }
+}
+
 // --- automatic acoustic care -------------------------------------------
 
 /** Resolved spins after which the care chain reaches its full softness. */
@@ -1011,6 +1065,8 @@ export function ingestDirective(
   // Engine off: stay silent, tear down anything still sounding.
   if (!engineGate) {
     cancelCues();
+    cancelDuck();
+    cancelCoinCount();
     stopBedHard();
     stopAmbientHard();
     return;
@@ -1066,6 +1122,7 @@ export function ingestDirective(
 export function stopAll() {
   cancelCues();
   cancelDuck();
+  cancelCoinCount();
   stopBedHard();
   stopAmbientHard();
   if (activeSting && audioCtx) {

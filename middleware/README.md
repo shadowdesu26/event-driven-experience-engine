@@ -145,6 +145,19 @@ A celebratory sting (win chime / celebration / jackpot / streak — decided afte
 - The frontend briefly lowers the bed and ambient channels by 30% for half a second, then glides them back — the win reads crisp without raising master volume.
 - The sting channel itself is never ducked, a parked (silent) channel is never ramped back into audibility, and neutral or silenced results ride untouched.
 
+## Count-up pacing
+
+`compute_count_up()` paces the credit count-up so a win finishes counting inside 2-3 seconds whatever its size (`count_up: {duration_ms, tick_hz, pitch_scale}` on every paying directive; None otherwise):
+
+| Tier | duration | tick rate | pitch |
+|---|---|---|---|
+| LDW (< 1x) | 2000ms | 12 Hz | 0.9 — quick and unceremonious |
+| 1x–10x | 2300ms | 14 Hz | 1.0 |
+| 10x–50x | 2600ms | 10 Hz | 1.15 — chunkier, brighter |
+| 50x+ | 3000ms | 10 Hz | 1.3 — the full jackpot count |
+
+The frontend stashes the win at reel-land and counts it out when the directive arrives, animating the CREDIT meter on the same clock as the coin ticks (a fallback lands the credit instantly if the directive never arrives). The engine-off plain player keeps its instant meter.
+
 ## Acoustic comfort (frontend executor)
 
 The frontend is a faithful executor of the envelopes above, plus two comfort layers of its own (`frontend/app/lib/experience.ts`):

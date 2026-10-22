@@ -85,6 +85,16 @@ export interface DuckSpec {
   duration_ms: number;
 }
 
+/** Credit count-up pacing: every win finishes counting within 2-3 seconds. */
+export interface CountUpSpec {
+  /** Count-up window in ms; larger wins count longer. */
+  duration_ms: number;
+  /** Coin ticks per second across the window. */
+  tick_hz: number;
+  /** Pitch multiplier on the coin ticks; rises with the win tier. */
+  pitch_scale: number;
+}
+
 export interface GripEventPayload {
   event_type: EventType;
   game_id?: string;
@@ -127,6 +137,8 @@ export interface GripResponse {
   ambient_volume?: number;
   /** Brief music dip under a celebratory sting; null on neutral/silenced results. */
   duck?: DuckSpec | null;
+  /** Credit count-up pacing for paying spins; null when nothing was won. */
+  count_up?: CountUpSpec | null;
   /** Net credits kept (win - bet). Negative on a loss disguised as a win. */
   net_profit?: number;
   /** True when win >= bet with win > 0; only then may positive audio play. */

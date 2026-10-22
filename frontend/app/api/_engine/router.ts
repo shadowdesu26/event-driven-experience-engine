@@ -222,6 +222,28 @@ function apply_duck(
     : null;
 }
 
+// Count-up pacing: coin-count pacing so a credit count-up finishes inside 2-3
+// seconds whatever the win. Bigger payouts get a longer, lower-rate,
+// higher-pitch count; an LDW counts quick and muted so it never sounds like a
+// jackpot. Values mirror middleware/router.py compute_count_up 1:1.
+export function compute_count_up(
+  win: number,
+  bet: number,
+): { duration_ms: number; tick_hz: number; pitch_scale: number } | null {
+  if (win <= 0) return null;
+  const multiplier = compute_multiplier(win, bet);
+  if (multiplier >= 50) {
+    return { duration_ms: 3000, tick_hz: 10.0, pitch_scale: 1.3 };
+  }
+  if (multiplier >= 10) {
+    return { duration_ms: 2600, tick_hz: 10.0, pitch_scale: 1.15 };
+  }
+  if (multiplier >= 1) {
+    return { duration_ms: 2300, tick_hz: 14.0, pitch_scale: 1.0 };
+  }
+  return { duration_ms: 2000, tick_hz: 12.0, pitch_scale: 0.9 };
+}
+
 /** Normalized view of an inbound event, legacy string form included. */
 interface Spin {
   event_type: string;
@@ -401,6 +423,7 @@ function finalize(
   directive.ambient_path = resolve_ambient_asset(spin.theme);
   directive.ambient_volume = AMBIENT_VOLUME;
   directive.duck = apply_duck(directive);
+  directive.count_up = compute_count_up(spin.win, spin.bet);
   directive.net_profit = net_profit(spin.win, spin.bet);
   directive.is_true_profit = is_true_profit(spin.win, spin.bet);
   directive.tempo = state.tempo;
@@ -449,6 +472,7 @@ function route_probe(spin: Spin, state: SessionState): Record<string, unknown> {
     ambient_path: resolve_ambient_asset(spin.theme),
     ambient_volume: AMBIENT_VOLUME,
     duck: null,
+    count_up: null,
     net_profit: net_profit(spin.win, spin.bet),
     is_true_profit: is_true_profit(spin.win, spin.bet),
     tempo: state.tempo,

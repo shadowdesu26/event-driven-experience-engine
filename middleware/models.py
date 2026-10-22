@@ -131,6 +131,29 @@ class DuckSpec(BaseModel):
     )
 
 
+class CountUpSpec(BaseModel):
+    """Credit count-up pacing: every win finishes counting within 2-3 seconds."""
+
+    duration_ms: int = Field(
+        default=2000,
+        ge=0,
+        le=10000,
+        description="Count-up window in ms; larger wins count longer",
+    )
+    tick_hz: float = Field(
+        default=12.0,
+        ge=0.0,
+        le=60.0,
+        description="Coin ticks per second across the window",
+    )
+    pitch_scale: float = Field(
+        default=1.0,
+        ge=0.25,
+        le=2.0,
+        description="Pitch multiplier on the coin ticks; rises with the win tier",
+    )
+
+
 class GripResponse(BaseModel):
     """Outbound directive telling the frontend what media and soundtrack to play."""
 
@@ -176,6 +199,10 @@ class GripResponse(BaseModel):
     duck: DuckSpec | None = Field(
         default=None,
         description="Brief background-music dip under a celebratory sting; None on neutral or silenced results",
+    )
+    count_up: CountUpSpec | None = Field(
+        default=None,
+        description="Credit count-up pacing for paying spins; None when nothing was won",
     )
     net_profit: float = Field(
         default=0.0, description="Net credits kept (win_amount - bet_amount). Negative on a loss disguised as a win."

@@ -246,6 +246,27 @@ def should_duck(soundtrack_path: str) -> bool:
     return soundtrack_path in CELEBRATORY_SOUNDTRACKS
 
 
+# --- Count-up pacing -----------------------------------------------------------
+#
+# Coin-count pacing so a credit count-up finishes inside 2-3 seconds whatever
+# the win: bigger payouts get a longer, lower-rate, higher-pitch count, and an
+# LDW counts quick and muted so it never sounds like a jackpot.
+def compute_count_up(win: float, bet: float) -> dict | None:
+    """Pacing spec for the credit count-up, or None when nothing was won."""
+    if win <= 0:
+        return None
+    multiplier = compute_multiplier(win, bet)
+    if multiplier >= 50:
+        # Jackpot tier: the longest, chunkiest, brightest count.
+        return {"duration_ms": 3000, "tick_hz": 10.0, "pitch_scale": 1.3}
+    if multiplier >= 10:
+        return {"duration_ms": 2600, "tick_hz": 10.0, "pitch_scale": 1.15}
+    if multiplier >= 1:
+        return {"duration_ms": 2300, "tick_hz": 14.0, "pitch_scale": 1.0}
+    # LDW: credits land, but the count stays quick and unceremonious.
+    return {"duration_ms": 2000, "tick_hz": 12.0, "pitch_scale": 0.9}
+
+
 @dataclass
 class _Spin:
     """Normalized view of an inbound event, legacy string form included."""
@@ -448,6 +469,8 @@ def _finalize(
         if should_duck(str(directive.get("soundtrack_path", "")))
         else None
     )
+    # Count-up pacing: a paying spin counts its credits out inside 2-3s.
+    directive["count_up"] = compute_count_up(spin.win, spin.bet)
     directive["net_profit"] = net_profit(spin.win, spin.bet)
     directive["is_true_profit"] = is_true_profit(spin.win, spin.bet)
     directive["tempo"] = state.tempo
