@@ -88,6 +88,9 @@ export function setEngineEnabled(enabled: boolean) {
 let bedGain: GainNode | null = null;
 let bedVoices: AudioTrack | null = null;
 let bedElement: HTMLAudioElement | null = null;
+// Latest bed volume the directive asked for, so a win duck can dip and return
+// to the directive's level rather than a stale one.
+let bedTargetVolume = 0;
 
 let heartbeatBpm = 0;
 let heartbeatTimer: number | null = null;
@@ -629,6 +632,7 @@ function stopBedHard() {
   }
   bedGain = null;
   bedPath = "";
+  bedTargetVolume = 0;
 }
 
 /** Fade the bed to silence but keep the channel alive for seamless re-entry. */
@@ -659,6 +663,7 @@ function parkBed() {
  */
 export function setBed(path: string, volume: number) {
   const target = Math.min(1, Math.max(0, volume));
+  bedTargetVolume = target;
 
   if (path) {
     // File bed: one looped element per path. Same path across spins only
@@ -760,6 +765,8 @@ let ambientGain: GainNode | null = null;
 let ambientVoices: AudioTrack | null = null;
 let ambientElement: HTMLAudioElement | null = null;
 let ambientPath = "";
+// Latest ambient volume the directive asked for — the duck return target.
+let ambientTargetVolume = 0;
 
 function stopAmbientHard() {
   if (ambientElement) {
@@ -777,6 +784,7 @@ function stopAmbientHard() {
   }
   ambientGain = null;
   ambientPath = "";
+  ambientTargetVolume = 0;
 }
 
 /**
@@ -789,6 +797,7 @@ function stopAmbientHard() {
 export function setAmbient(path: string, volume: number) {
   if (!engineGate) return;
   const target = Math.min(1, Math.max(0, volume));
+  ambientTargetVolume = target;
 
   if (path) {
     if (!ambientElement || ambientPath !== path) {
@@ -869,6 +878,77 @@ export function setAmbient(path: string, volume: number) {
   );
 }
 
+// --- win duck (brief music dip under a positive sting) ---------------------
+//
+// When a celebratory sting owns the moment, the middleware asks for a short
+// background-music dip so the win reads crisp without raising master volume.
+// The dip rides the bed and ambient channels only — never the sting itself —
+// and a parked (silent) channel is skipped, so a dip can never ramp it audible.
+
+const DUCK_DOWN_SECONDS = 0.06;
+const DUCK_RELEASE_SECONDS = 0.35;
+
+let duckGeneration = 0;
+let duckTimers: number[] = [];
+
+/** Kill any running dip; a newer directive or teardown owns the channels now. */
+function cancelDuck() {
+  duckGeneration += 1;
+  duckTimers.forEach((timer) => window.clearTimeout(timer));
+  duckTimers = [];
+}
+
+/** Dip a Web Audio gain to `target * dipScale`, hold, then glide back. */
+function duckAudioParam(gain: AudioParam, target: number, dipScale: number, holdMs: number) {
+  const ctx = audioCtx;
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  gain.cancelScheduledValues(now);
+  gain.setTargetAtTime(Math.max(0.0001, target * dipScale), now, DUCK_DOWN_SECONDS);
+  gain.setTargetAtTime(Math.max(0.0001, target), now + holdMs / 1000, DUCK_RELEASE_SECONDS);
+}
+
+/** Step an HTMLAudioElement's volume down and back (no automation API). */
+function duckElementVolume(element: HTMLAudioElement, target: number, dipScale: number, holdMs: number) {
+  const gen = duckGeneration;
+  element.volume = Math.max(0, target * dipScale);
+  duckTimers.push(
+    window.setTimeout(() => {
+      if (gen !== duckGeneration) return;
+      const steps = 8;
+      for (let s = 1; s <= steps; s += 1) {
+        duckTimers.push(
+          window.setTimeout(() => {
+            if (gen !== duckGeneration) return;
+            const t = s / steps;
+            element.volume = Math.max(0, target * (dipScale + (1 - dipScale) * t));
+          }, (DUCK_RELEASE_SECONDS * 1000 * s) / steps),
+        );
+      }
+    }, holdMs),
+  );
+}
+
+/** Apply the middleware's dip to every sounding background-music channel. */
+function applyDuck(amount: number, durationMs: number) {
+  cancelDuck();
+  const dipScale = Math.max(0, 1 - Math.min(1, amount));
+  if (dipScale >= 1 || durationMs <= 0) return;
+
+  if (bedElement && bedTargetVolume > 0) {
+    duckElementVolume(bedElement, bedTargetVolume, dipScale, durationMs);
+  }
+  if (bedGain && bedTargetVolume > 0) {
+    duckAudioParam(bedGain.gain, bedTargetVolume, dipScale, durationMs);
+  }
+  if (ambientElement && ambientTargetVolume > 0) {
+    duckElementVolume(ambientElement, ambientTargetVolume, dipScale, durationMs);
+  }
+  if (ambientGain && ambientTargetVolume > 0) {
+    duckAudioParam(ambientGain.gain, ambientTargetVolume, dipScale, durationMs);
+  }
+}
+
 // --- automatic acoustic care -------------------------------------------
 
 /** Resolved spins after which the care chain reaches its full softness. */
@@ -921,6 +1001,8 @@ export function ingestDirective(
     bedtrack_volume?: number;
     ambient_path?: string;
     ambient_volume?: number;
+    /** Brief music dip under the celebratory sting, when one plays. */
+    duck?: { amount: number; duration_ms: number } | null;
     /** Center-line symbols of the landed spin, for the depth readout. */
     symbols?: string[];
   },
@@ -936,8 +1018,10 @@ export function ingestDirective(
   getAudioContext();
   currentProfile = directive.audio ?? DEFAULT_AUDIO_PROFILE;
 
-  // A resolved directive always ends any suspense window still running.
+  // A resolved directive always ends any suspense window still running, and
+  // any dip from the previous spin before the beds are re-aimed.
   cancelCues();
+  cancelDuck();
 
   resolvedSpinCount += 1;
   applyAcousticCare();
@@ -969,11 +1053,19 @@ export function ingestDirective(
 
   setBed(directive.bedtrack_path ?? "", directive.bedtrack_volume ?? 0);
   setAmbient(directive.ambient_path ?? "", directive.ambient_volume ?? 0);
+
+  // Win duck: a positive sting briefly dips the background music so the win
+  // reads crisp at a comfortable master volume. Neutral/silenced directives
+  // carry no duck and the beds keep riding their targets untouched.
+  if (directive.duck && directive.duck.amount > 0) {
+    applyDuck(directive.duck.amount, directive.duck.duration_ms);
+  }
 }
 
 /** Silence everything. Used on unmount and when the engine gate closes. */
 export function stopAll() {
   cancelCues();
+  cancelDuck();
   stopBedHard();
   stopAmbientHard();
   if (activeSting && audioCtx) {

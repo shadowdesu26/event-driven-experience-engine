@@ -231,6 +231,20 @@ def is_ldw(win: float, bet: float) -> bool:
 # voice/element alive and only rides its gain. No per-spin restart, no cut.
 AMBIENT_VOLUME: float = 0.10
 
+# --- Win duck (brief music dip under a positive sting) ------------------------
+#
+# When a celebratory sting owns the moment the middleware asks for a short
+# background-music dip (default -30% for 0.5s) so the win reads crisp at a
+# comfortable master volume. Only celebratory stings duck — after the
+# net-profit gate — so silenced LDWs and neutral results ride untouched.
+DUCK_AMOUNT: float = 0.30
+DUCK_DURATION_MS: int = 500
+
+
+def should_duck(soundtrack_path: str) -> bool:
+    """True when the allocated sting is celebratory (post net-profit gate)."""
+    return soundtrack_path in CELEBRATORY_SOUNDTRACKS
+
 
 @dataclass
 class _Spin:
@@ -426,6 +440,14 @@ def _finalize(
     # never restarts it when the reels stop.
     directive["ambient_path"] = resolve_ambient_asset(spin.theme)
     directive["ambient_volume"] = AMBIENT_VOLUME
+    # Win duck: a celebratory sting (post net-profit gate) briefly dips the
+    # background music so the win reads crisp without raising master volume.
+    # Silenced LDWs and neutral stings never duck.
+    directive["duck"] = (
+        {"amount": DUCK_AMOUNT, "duration_ms": DUCK_DURATION_MS}
+        if should_duck(str(directive.get("soundtrack_path", "")))
+        else None
+    )
     directive["net_profit"] = net_profit(spin.win, spin.bet)
     directive["is_true_profit"] = is_true_profit(spin.win, spin.bet)
     directive["tempo"] = state.tempo

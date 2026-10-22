@@ -114,6 +114,23 @@ class AudioProfileSpec(BaseModel):
     bed_synth: str = Field(default="soft_pad", description="Synth voice to use when no bed file exists")
 
 
+class DuckSpec(BaseModel):
+    """Brief background-music dip while a positive sting owns the moment."""
+
+    amount: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Fraction to lower the music bed (0.3 = -30%)",
+    )
+    duration_ms: int = Field(
+        default=500,
+        ge=0,
+        le=10000,
+        description="How long the dip holds before the music glides back",
+    )
+
+
 class GripResponse(BaseModel):
     """Outbound directive telling the frontend what media and soundtrack to play."""
 
@@ -155,6 +172,10 @@ class GripResponse(BaseModel):
     )
     ambient_volume: float = Field(
         default=0.0, ge=0.0, le=1.0, description="Always-on ambient level; constant so the loop rides smoothly across spins"
+    )
+    duck: DuckSpec | None = Field(
+        default=None,
+        description="Brief background-music dip under a celebratory sting; None on neutral or silenced results",
     )
     net_profit: float = Field(
         default=0.0, description="Net credits kept (win_amount - bet_amount). Negative on a loss disguised as a win."

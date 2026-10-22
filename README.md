@@ -158,6 +158,9 @@ Sending `BIG_WIN` then `BONUS_TRIGGER` back-to-back instead demonstrates the
 - **Seamless ambient** — every directive carries the same `ambient_path` at a
   constant `ambient_volume: 0.10`; the frontend keeps one looped voice alive
   and only rides its gain, so background music never cuts when the reels stop.
+- **Win duck** — a celebratory sting briefly dips the background music
+  (`duck: {amount: 0.3, duration_ms: 500}`) so the win reads crisp without
+  raising master volume. Silenced LDWs and neutral results never duck.
 - Tiered video variants (`_10x` / `_25x` / `_50x` suffixes) are selected by
   multiplier via `middleware/asset_scanner.py`, which scans
   `frontend/public/{theme}/` at runtime (mtime-cached — swap/rename files
@@ -250,7 +253,7 @@ Directive response adds: `action`, `asset_path`, `asset_type`,
 `soundtrack_path`, `ui_pulse`, `volume` (0.0–1.0), `win_multiplier`, and a
 `message` explaining the allocation rationale, plus the pacing and suspense
 fields: `phase`, `audio`, `bedtrack_path`, `bedtrack_volume`, `ambient_path`,
-`ambient_volume`, `net_profit`, `is_true_profit`, `tempo`,
+`ambient_volume`, `duck`, `net_profit`, `is_true_profit`, `tempo`,
 `cadence_ms`, `losing_streak`, `win_streak`, `drought_tier`, `cues`,
 `light_program`, `close_call`, `suspense_asset_path`, `suspense_total_ms`, and
 `session_id`.

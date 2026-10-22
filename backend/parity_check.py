@@ -288,6 +288,7 @@ def main() -> int:
             diff("bedtrack_volume", py_response.get("bedtrack_volume"), ts_response.get("bedtrack_volume"), tolerance_for("bedtrack_volume"), problems)
             diff("ambient_path", py_response.get("ambient_path"), ts_response.get("ambient_path"), 0, problems)
             diff("ambient_volume", py_response.get("ambient_volume"), ts_response.get("ambient_volume"), tolerance_for("bedtrack_volume"), problems)
+            diff("duck", py_response.get("duck"), ts_response.get("duck"), 0, problems)
             diff("net_profit", py_response.get("net_profit"), ts_response.get("net_profit"), 0.011, problems)
             diff("is_true_profit", py_response.get("is_true_profit"), ts_response.get("is_true_profit"), 0, problems)
             diff("tempo", py_response.get("tempo"), ts_response.get("tempo"), 0, problems)

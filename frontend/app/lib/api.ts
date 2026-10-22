@@ -77,6 +77,14 @@ export interface CloseCall {
   symbols: string[];
 }
 
+/** Brief background-music dip while a positive sting owns the moment. */
+export interface DuckSpec {
+  /** Fraction to lower the music (0.3 = -30%). */
+  amount: number;
+  /** How long the dip holds before the music glides back. */
+  duration_ms: number;
+}
+
 export interface GripEventPayload {
   event_type: EventType;
   game_id?: string;
@@ -117,6 +125,8 @@ export interface GripResponse {
   ambient_path?: string;
   /** Always-on ambient level; constant so the loop rides smoothly across spins. */
   ambient_volume?: number;
+  /** Brief music dip under a celebratory sting; null on neutral/silenced results. */
+  duck?: DuckSpec | null;
   /** Net credits kept (win - bet). Negative on a loss disguised as a win. */
   net_profit?: number;
   /** True when win >= bet with win > 0; only then may positive audio play. */

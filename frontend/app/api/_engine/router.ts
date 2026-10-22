@@ -207,6 +207,21 @@ export function is_ldw(win: number, bet: number): boolean {
 // volume; the frontend keeps one looped voice alive and rides its gain.
 export const AMBIENT_VOLUME = 0.1;
 
+// Win duck: a celebratory sting (post net-profit gate) briefly dips the
+// background music (-30% for 0.5s) so the win reads crisp at a comfortable
+// master volume. Silenced LDWs and neutral stings never duck.
+export const DUCK_AMOUNT = 0.3;
+export const DUCK_DURATION_MS = 500;
+
+function apply_duck(
+  directive: Record<string, unknown>,
+): { amount: number; duration_ms: number } | null {
+  const soundtrack = (directive.soundtrack_path as string) ?? "";
+  return CELEBRATORY_SOUNDTRACKS.has(soundtrack)
+    ? { amount: DUCK_AMOUNT, duration_ms: DUCK_DURATION_MS }
+    : null;
+}
+
 /** Normalized view of an inbound event, legacy string form included. */
 interface Spin {
   event_type: string;
@@ -385,6 +400,7 @@ function finalize(
   directive.bedtrack_volume = bed_volume(state);
   directive.ambient_path = resolve_ambient_asset(spin.theme);
   directive.ambient_volume = AMBIENT_VOLUME;
+  directive.duck = apply_duck(directive);
   directive.net_profit = net_profit(spin.win, spin.bet);
   directive.is_true_profit = is_true_profit(spin.win, spin.bet);
   directive.tempo = state.tempo;
@@ -432,6 +448,7 @@ function route_probe(spin: Spin, state: SessionState): Record<string, unknown> {
     bedtrack_volume: bed_volume(state),
     ambient_path: resolve_ambient_asset(spin.theme),
     ambient_volume: AMBIENT_VOLUME,
+    duck: null,
     net_profit: net_profit(spin.win, spin.bet),
     is_true_profit: is_true_profit(spin.win, spin.bet),
     tempo: state.tempo,

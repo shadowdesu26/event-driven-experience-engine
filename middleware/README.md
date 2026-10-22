@@ -138,6 +138,13 @@ The sting channel is one-shot per spin; the ambient floor loop is not:
 - Every directive carries the same `ambient_path` per theme (shipped `bed/` file or `""` = synth warm drone) at a constant `ambient_volume: 0.10`.
 - The frontend keeps one looped ambient voice alive and only rides its gain — never restarts it when the reels stop. Zero bed volume likewise parks (same playhead / live oscillators) instead of destroying the channel, so drought beds fade back in without cuts.
 
+## Win duck under positive stings
+
+A celebratory sting (win chime / celebration / jackpot / streak — decided after the net-profit gate) adds `duck: {amount: 0.3, duration_ms: 500}`:
+
+- The frontend briefly lowers the bed and ambient channels by 30% for half a second, then glides them back — the win reads crisp without raising master volume.
+- The sting channel itself is never ducked, a parked (silent) channel is never ramped back into audibility, and neutral or silenced results ride untouched.
+
 ## Acoustic comfort (frontend executor)
 
 The frontend is a faithful executor of the envelopes above, plus two comfort layers of its own (`frontend/app/lib/experience.ts`):

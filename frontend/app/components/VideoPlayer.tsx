@@ -87,6 +87,7 @@ export default function VideoPlayer({
         bedtrack_volume: response.bedtrack_volume,
         ambient_path: response.ambient_path,
         ambient_volume: response.ambient_volume,
+        duck: response.duck,
         light_program: response.light_program,
         symbols,
       },

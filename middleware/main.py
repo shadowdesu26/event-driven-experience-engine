@@ -139,6 +139,7 @@ def grip_event(event: GripEvent) -> GripResponse:
         bedtrack_volume=routed.get("bedtrack_volume", 0.0),
         ambient_path=routed.get("ambient_path", ""),
         ambient_volume=routed.get("ambient_volume", 0.0),
+        duck=routed.get("duck"),
         net_profit=routed.get("net_profit", (event.win_amount or 0.0) - (event.bet_amount or 25.0)),
         is_true_profit=routed.get("is_true_profit", False),
         tempo=routed.get("tempo", "steady"),
