@@ -24,7 +24,7 @@ import type {
   SpinPhase,
 } from "@/app/lib/api";
 
-import { resolve_asset, resolve_bed_asset, resolve_suspense_asset, safe_theme } from "./assets";
+import { resolve_ambient_asset, resolve_asset, resolve_bed_asset, resolve_suspense_asset, safe_theme } from "./assets";
 import {
   apply_pacing,
   audio_profile,
@@ -179,6 +179,34 @@ export const DROUGHT_DOWNGRADE_TIERS: ReadonlySet<string> = new Set(["deep", "se
 
 export const DEFAULT_BET = 25.0;
 
+// Net-profit payout audio (anti-LDW): 0 < win < bet pays credits but loses net,
+// so celebratory stings are silenced and positive audio stays strictly for
+// true profits (win >= bet).
+export const CELEBRATORY_SOUNDTRACKS: ReadonlySet<string> = new Set([
+  "/audio/win_chime.wav",
+  "/audio/celebration.wav",
+  "/audio/jackpot.wav",
+  "/audio/win_streak.wav",
+]);
+
+export function net_profit(win: number, bet: number): number {
+  return Math.round((win - bet) * 100) / 100;
+}
+
+export function is_true_profit(win: number, bet: number): boolean {
+  return win > 0 && win >= bet;
+}
+
+export function is_ldw(win: number, bet: number): boolean {
+  return win > 0 && win < bet;
+}
+
+// Seamless background music continuity: the sting channel is one-shot per
+// spin, but the ambient floor loop must not restart when the reels stop. The
+// engine returns the same ambient path every directive at a constant low
+// volume; the frontend keeps one looped voice alive and rides its gain.
+export const AMBIENT_VOLUME = 0.1;
+
 /** Normalized view of an inbound event, legacy string form included. */
 interface Spin {
   event_type: string;
@@ -261,17 +289,40 @@ export function big_win_volume(multiplier: number): number {
   return 0.8;
 }
 
-export function compute_volume(event_type: string, multiplier: number, win = 0.0): number {
+export function compute_volume(event_type: string, multiplier: number, win = 0.0, bet: number = DEFAULT_BET): number {
   if (event_type === "WIN_STREAK") return 1.0;
   if (event_type === "BIG_WIN") return big_win_volume(multiplier);
   let volume = BASE_VOLUMES[event_type] ?? 0.5;
-  if (event_type === "SPIN_RESULT" && win > 0) volume = 0.5;
+  if (event_type === "SPIN_RESULT" && win > 0)
+    volume = is_true_profit(win, bet) ? 0.5 : (BASE_VOLUMES[event_type] ?? 0.35);
   return round(Math.min(1.0, Math.max(0.0, volume)), 2);
 }
 
-function is_win(event_type: string, win: number, escalated: boolean): boolean {
-  if (win > 0 || escalated) return true;
-  return HIGH_TIER_EVENTS.includes(event_type) || event_type === "WIN_STREAK";
+function is_win(event_type: string, win: number, bet: number, escalated: boolean): boolean {
+  void event_type;
+  if (escalated) return true;
+  if (win > 0 && win >= bet) return true;
+  return false;
+}
+
+function apply_net_profit_gate(
+  directive: Record<string, unknown>,
+  spin: Spin,
+): Record<string, unknown> {
+  if (!is_ldw(spin.win, spin.bet)) return directive;
+  const soundtrack = (directive.soundtrack_path as string) ?? "";
+  if (CELEBRATORY_SOUNDTRACKS.has(soundtrack)) {
+    directive.soundtrack_path = "";
+    directive.volume = 0.0;
+    directive.ui_pulse = "none";
+    const net = net_profit(spin.win, spin.bet);
+    const sign = net >= 0 ? "+" : "";
+    directive.message =
+      `${directive.message as string} Net-profit gate: win ${spin.win.toFixed(0)} < ` +
+      `bet ${spin.bet.toFixed(0)} (net ${sign}${net.toFixed(0)}, ${compute_multiplier(spin.win, spin.bet).toFixed(2)}x) — ` +
+      `celebration silenced, no positive audio for a net loss.`;
+  }
+  return directive;
 }
 
 function drought_adjusted_pulse(pulse: string, state: SessionState): string {
@@ -309,7 +360,7 @@ function finalize(
   const profile = audio_profile(state.tempo, state.losing_streak);
   const temperament = light_temperament(state.losing_streak);
 
-  const is_paying = spin.win > 0 || HIGH_TIER_EVENTS.includes(spin.event_type);
+  const is_paying = is_true_profit(spin.win, spin.bet);
   let pulse = (directive.ui_pulse as string) ?? "none";
   if (!is_paying) pulse = drought_adjusted_pulse(pulse, state);
 
@@ -332,6 +383,10 @@ function finalize(
   directive.audio = pacing.audio;
   directive.bedtrack_path = resolve_bed_asset(spin.theme);
   directive.bedtrack_volume = bed_volume(state);
+  directive.ambient_path = resolve_ambient_asset(spin.theme);
+  directive.ambient_volume = AMBIENT_VOLUME;
+  directive.net_profit = net_profit(spin.win, spin.bet);
+  directive.is_true_profit = is_true_profit(spin.win, spin.bet);
   directive.tempo = state.tempo;
   directive.cadence_ms = pacing.cadence_ms;
   directive.losing_streak = state.losing_streak;
@@ -375,6 +430,10 @@ function route_probe(spin: Spin, state: SessionState): Record<string, unknown> {
     audio: pacing.audio,
     bedtrack_path: resolve_bed_asset(spin.theme),
     bedtrack_volume: bed_volume(state),
+    ambient_path: resolve_ambient_asset(spin.theme),
+    ambient_volume: AMBIENT_VOLUME,
+    net_profit: net_profit(spin.win, spin.bet),
+    is_true_profit: is_true_profit(spin.win, spin.bet),
     tempo: state.tempo,
     cadence_ms: pacing.cadence_ms,
     losing_streak: state.losing_streak,
@@ -529,7 +588,7 @@ function allocate(
   // Dynamic allocation refinement based on player result.
   const directive: Record<string, unknown> = { ...base };
   directive.asset_path = resolve_asset(spin.theme, event_type, multiplier, base.asset_path);
-  directive.volume = compute_volume(event_type, multiplier, spin.win);
+  directive.volume = compute_volume(event_type, multiplier, spin.win, spin.bet);
   if (event_type === "BIG_WIN") {
     directive.message =
       `Big Win allocated: Payout ${spin.win.toFixed(0)} credits (${multiplier.toFixed(1)}x bet). ` +
@@ -542,11 +601,24 @@ function allocate(
       `Tension riser and subtle pulse allocated.`;
     directive.ui_pulse = "subtle";
   } else if (event_type === "SPIN_RESULT") {
-    if (spin.win > 0) {
+    if (is_ldw(spin.win, spin.bet)) {
+      const net = net_profit(spin.win, spin.bet);
+      const sign = net >= 0 ? "+" : "";
+      directive.soundtrack_path = "";
+      directive.volume = 0.0;
+      directive.ui_pulse = "none";
+      directive.message =
+        `Payline returns ${spin.win.toFixed(0)} on a ${spin.bet.toFixed(0)} bet ` +
+        `(net ${sign}${net.toFixed(0)}, ${multiplier.toFixed(2)}x): loss disguised as a win — ` +
+        `celebration silenced, neutral result only.`;
+    } else if (spin.win > 0) {
+      const net = net_profit(spin.win, spin.bet);
+      const sign = net >= 0 ? "+" : "";
       directive.soundtrack_path = "/audio/win_chime.wav";
       directive.ui_pulse = "subtle";
       directive.message =
-        `Payline match: ${spin.win.toFixed(0)} credits awarded. Reward audio allocated.`;
+        `Payline match: ${spin.win.toFixed(0)} credits awarded ` +
+        `(net ${sign}${net.toFixed(0)} on ${spin.bet.toFixed(0)} bet). Reward audio allocated.`;
     } else {
       directive.message = "Reels stopped: standard spin result recorded.";
     }
@@ -556,7 +628,8 @@ function allocate(
       `Dragon descent and grand fanfare allocated.`;
   }
 
-  return { event_type, action: "play", ...directive, win_multiplier: multiplier };
+  const allocated = { event_type, action: "play", ...directive, win_multiplier: multiplier };
+  return apply_net_profit_gate(allocated, spin);
 }
 
 function route_resolved(spin: Spin, state: SessionState): Record<string, unknown> {
@@ -569,10 +642,13 @@ function route_resolved(spin: Spin, state: SessionState): Record<string, unknown
     spin.win > 0 &&
     multiplier >= BIG_WIN_THRESHOLD;
 
+  const true_profit = is_true_profit(spin.win, spin.bet);
+  const effective_high_tier = (is_high_tier && true_profit) || escalated;
+
   state.ingest(
     spin.event_type,
-    is_win(spin.event_type, spin.win, escalated),
-    is_high_tier || escalated,
+    is_win(spin.event_type, spin.win, spin.bet, escalated),
+    effective_high_tier,
     parse_timestamp(spin.timestamp),
   );
   const released = state.consume_suspense() as Record<string, unknown> | null;

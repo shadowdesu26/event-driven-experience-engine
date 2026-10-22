@@ -23,7 +23,7 @@ lighting directives.
 |---|---|---|
 | Simulated game backend | `backend/` | RNG reel outcomes, paytables, GRIP event dispatch (CLI) |
 | **Experience Engine** | `middleware/` | Contextual allocation: win multiplier tiering, escalation, streak state machine, close-call suspense, adaptive pacing, runtime asset scanning |
-| Presentation frontend | `frontend/` | Slot cabinet UI, video player, Web Audio synthesis, cue runner, cabinet lighting |
+| Presentation frontend | `frontend/` | Slot cabinet UI, video player, Web Audio synthesis (stings, bed, ambient loop, symbol sound-depth readout), acoustic comfort chain, cue runner, cabinet lighting |
 
 ## Quick Start (Windows)
 
@@ -138,7 +138,7 @@ Sending `BIG_WIN` then `BONUS_TRIGGER` back-to-back instead demonstrates the
 | Event | Trigger | Video | Volume | UI Pulse |
 |---|---|---|---|---|
 | `GAME_START` | Session start | `wuxia_game_start.mp4` | 0.40 | subtle |
-| `SPIN_RESULT` | Minor payline hit | `wuxia_spin_result.mp4` | 0.35–0.50 | none/subtle |
+| `SPIN_RESULT` | Minor payline hit (LDW → silenced) | `wuxia_spin_result.mp4` | 0.0 (LDW) / 0.35–0.50 | none/subtle |
 | `NO_WIN` | Dead spin | `WUXIA_NO_WIN.mp4` | 0.30 | none |
 | `NEAR_WIN` | 4 matching symbols | `wuxia_near_win.mp4` | 0.55 | subtle |
 | `BONUS_TRIGGER` | 3+ scatter ⭐ | `wuxia_bonus_trigger.mp4` | 0.75 | strong |
@@ -150,6 +150,14 @@ Sending `BIG_WIN` then `BONUS_TRIGGER` back-to-back instead demonstrates the
 - `win_multiplier = win_amount / bet_amount` is computed for every event.
 - Under-classed events (`SPIN_RESULT` / `NO_WIN` / `NEAR_WIN`) with a payout
   ≥ 10× bet **escalate** to the big-win celebration tier automatically.
+- **Net-profit gate (anti-LDW)** — a return smaller than the stake
+  (`0 < win < bet`) ships `soundtrack_path: ""` at `volume: 0.0` with no pulse:
+  celebration silenced, neutral result only. Positive audio is strictly for
+  true profits (`win >= bet`). LDWs also extend the losing streak instead of
+  closing the bed. Try the manual `SPIN_RESULT` button (10 on 25, net −15).
+- **Seamless ambient** — every directive carries the same `ambient_path` at a
+  constant `ambient_volume: 0.10`; the frontend keeps one looped voice alive
+  and only rides its gain, so background music never cuts when the reels stop.
 - Tiered video variants (`_10x` / `_25x` / `_50x` suffixes) are selected by
   multiplier via `middleware/asset_scanner.py`, which scans
   `frontend/public/{theme}/` at runtime (mtime-cached — swap/rename files
@@ -167,10 +175,10 @@ Sending `BIG_WIN` then `BONUS_TRIGGER` back-to-back instead demonstrates the
   Under 2200 ms/spin the player is `rapid` and audio becomes short and punchy
   (0.55× duration, no tail). This deliberately outranks the drought bed: a
   player hammering the button while losing should not be handed a long tail.
-- **Losing streaks** — three consecutive zero-payout spins fade in a soft
+- **Losing streaks** — three consecutive non-profiting spins fade in a soft
   encouraging bed on its own audio channel (0.16 → 0.24 → 0.30), deepen the
-  audio envelope, and cool the cabinet from amber to sky to indigo. A win closes
-  the bed and holds it closed for two spins. The bed is hard-capped at 0.35.
+  audio envelope, and cool the cabinet from amber to sky to indigo. Only a true
+  profit closes the bed and holds it closed for two spins. The bed is hard-capped at 0.35.
 
 Full detail, including the pipeline order and the two-phase spin lifecycle, is in
 [`middleware/README.md`](middleware/README.md).
@@ -195,6 +203,11 @@ Full detail, including the pipeline order and the two-phase spin lifecycle, is i
 - **Cabinet rim glow** — the engine's `light_program` renders as a thin colored
   ring and soft border glow on the machine (intensity clamped ≤ 0.5), following
   the cue ladder. Engine OFF leaves the rim dark.
+- **Acoustic comfort chain (frontend)** — the longer a session runs, the gentler
+  the mix: the treble ceiling glides down and bass warmth glides up over the
+  first 60 resolved spins (`setTargetAtTime` throughout, never stepped), so
+  hours of play never build up listening fatigue. The engine gate itself stays
+  instant.
 
 ## API Endpoints (middleware)
 
@@ -236,7 +249,8 @@ middleware manually.
 Directive response adds: `action`, `asset_path`, `asset_type`,
 `soundtrack_path`, `ui_pulse`, `volume` (0.0–1.0), `win_multiplier`, and a
 `message` explaining the allocation rationale, plus the pacing and suspense
-fields: `phase`, `audio`, `bedtrack_path`, `bedtrack_volume`, `tempo`,
+fields: `phase`, `audio`, `bedtrack_path`, `bedtrack_volume`, `ambient_path`,
+`ambient_volume`, `net_profit`, `is_true_profit`, `tempo`,
 `cadence_ms`, `losing_streak`, `win_streak`, `drought_tier`, `cues`,
 `light_program`, `close_call`, `suspense_asset_path`, `suspense_total_ms`, and
 `session_id`.
@@ -247,7 +261,9 @@ older client that sends nothing still gets a valid directive.
 ## Notes
 
 - Video assets are AI-generated Wuxia placeholders in `frontend/public/wuxia/`.
-- Audio is synthesized in-browser via the Web Audio API (zero-latency fallback;
-  no audio files required).
+- Audio is synthesized in-browser via the Web Audio API (zero-latency fallback).
+  Themes may optionally ship looped bed/ambient files in
+  `frontend/public/{theme}/bed/` — `asset_scanner.py` picks them up at runtime;
+  without one the frontend synthesizes a soft pad.
 - In a production / regulated environment, GLI-11/GLI-19 compliance applies:
   the engine is air-gapped from EGM RNG and consumes only certified assets.

@@ -113,6 +113,14 @@ export interface GripResponse {
   bedtrack_path?: string;
   /** Encouraging bed level during a losing streak. */
   bedtrack_volume?: number;
+  /** Persistent ambient loop; empty means synthesize a warm drone. Stable per theme. */
+  ambient_path?: string;
+  /** Always-on ambient level; constant so the loop rides smoothly across spins. */
+  ambient_volume?: number;
+  /** Net credits kept (win - bet). Negative on a loss disguised as a win. */
+  net_profit?: number;
+  /** True when win >= bet with win > 0; only then may positive audio play. */
+  is_true_profit?: boolean;
   tempo?: Tempo;
   /** Smoothed ms between spins; 0 until two spins land. */
   cadence_ms?: number;

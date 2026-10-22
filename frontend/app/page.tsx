@@ -208,11 +208,21 @@ export default function Home() {
                 <p className="text-zinc-400">
                   WIN/BET: {payload?.win_amount ?? "—"} / {payload?.bet_amount ?? "—"}
                   {response.win_multiplier !== undefined ? ` (${response.win_multiplier}x)` : ""}
+                  {response.net_profit !== undefined
+                    ? ` · NET ${response.net_profit >= 0 ? "+" : ""}${response.net_profit}`
+                    : ""}
+                  {response.is_true_profit === false && (payload?.win_amount ?? 0) > 0
+                    ? " · LDW silenced"
+                    : ""}
                 </p>
                 <p className="truncate" title={payload?.symbols?.join(" ")}>
                   SYMBOLS: {payload?.symbols ? payload.symbols.join(" ") : "—"}
                 </p>
-                <p>AUDIO: {soundtrackName}</p>
+                <p>AUDIO: {soundtrackName}
+                  {response.ambient_path !== undefined || response.ambient_volume !== undefined
+                    ? ` · AMB ${(response.ambient_volume ?? 0).toFixed(2)} loop`
+                    : ""}
+                </p>
                 <p>
                   STREAK:{" "}
                   <span className={response.losing_streak ? "text-rose-400" : ""}>

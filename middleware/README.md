@@ -108,7 +108,7 @@ The fusion rationale rides in the probe message (`[drought-fused 1->2]`), and bo
 | `steady` | 2200–4500ms | `standard` | 1.0x duration, 8ms attack |
 | `deliberate` | > 4500ms | `standard` | 1.0x duration, 8ms attack |
 
-**Losing streak** — consecutive zero-payout spins open a soft encouraging bed on its own audio channel, and cool the cabinet lighting:
+**Losing streak** — consecutive non-profiting spins open a soft encouraging bed on its own audio channel, and cool the cabinet lighting:
 
 | Streak | Tier | Bed | Lighting |
 |---|---|---|---|
@@ -117,11 +117,33 @@ The fusion rationale rides in the probe message (`[drought-fused 1->2]`), and bo
 | 10+ | severe | 0.30, `consoling` audio | hushed (indigo) |
 
 - The bed is capped at **0.35** — a responsible-design bound, not a tuning value. Ambient comfort never outranks a payout.
-- A win closes the bed and holds it closed for 2 spins, so one immediate miss cannot make the music stutter.
+- Only true profits (win >= bet) close the bed and start the 2-spin cooldown, so one immediate miss cannot make the music stutter. A loss disguised as a win (0 < win < bet) extends the drought instead of snapping the bed shut on a fake win.
 - A deep drought steps the cabinet pulse down one notch. It only ever clamps downward: a drought must never make a dead spin louder than a win.
 - `rapid` deliberately wins over `consoling`. A player hammering the button while losing gets short punchy audio, not a penalty that sounds like one.
 
 The bed is synthesized in-browser unless the theme ships a file in `frontend/public/{theme}/bed/`, which `asset_scanner.py` picks up without a restart.
+
+## Net-profit payout audio (anti-LDW)
+
+A return smaller than the stake (0 < win < bet) is a net loss, never a win:
+
+- `SPIN_RESULT` LDWs keep the neutral reel video but ship `soundtrack_path: ""` at `volume: 0.0` with `ui_pulse: "none"` — celebration silenced, neutral result only. True profits (win >= bet, pushes included) keep the win chime at 0.5 with a subtle pulse.
+- Any other LDW carrying a celebratory sting (win chime / celebration / jackpot / streak) is stripped the same way; neutral beds (tension, dead-spin, reel) survive because they are not positive cues.
+- `net_profit` (win − bet) and `is_true_profit` ride every directive for QA, and only true profits escape consoling attenuation or advance the win streak.
+
+## Seamless background music continuity
+
+The sting channel is one-shot per spin; the ambient floor loop is not:
+
+- Every directive carries the same `ambient_path` per theme (shipped `bed/` file or `""` = synth warm drone) at a constant `ambient_volume: 0.10`.
+- The frontend keeps one looped ambient voice alive and only rides its gain — never restarts it when the reels stop. Zero bed volume likewise parks (same playhead / live oscillators) instead of destroying the channel, so drought beds fade back in without cuts.
+
+## Acoustic comfort (frontend executor)
+
+The frontend is a faithful executor of the envelopes above, plus two comfort layers of its own (`frontend/app/lib/experience.ts`):
+
+- **Symbol sound-depth readout** — the landed center line answers with tiered voices: low-tier symbols click, mid-tier hum, top-tier symbols sound deep. A silenced LDW keeps the clicks but drops any fanfare, matching the net-profit gate.
+- **Automatic care chain** — with session age the treble ceiling glides down and bass warmth glides up (full softness after 60 resolved spins, `setTargetAtTime` throughout, never stepped), so hours of play never build up sharpness or listening fatigue. Closing the engine gate still silences everything instantly.
 
 ## Session state
 
@@ -139,24 +161,13 @@ python simulate_events.py --session my-seat --scenario streak
 
 ## TypeScript port (online demo)
 
-rontend/app/api/_engine/ mirrors this module 1:1 in TypeScript (session pacing,
-mood profiles, suspense ladders, the router pipeline) so the online demo runs the
-whole engine inside one Next.js deployment instead of hosting Python. Local
-development still uses THIS middleware via the ENGINE_URL rewrite that
-launch.bat sets.
+`frontend/app/api/_engine/` mirrors this module 1:1 in TypeScript (session pacing, mood profiles, suspense ladders, the router pipeline, the net-profit gate, ambient continuity) so the online demo runs the whole engine inside one Next.js deployment instead of hosting Python. Local development still uses THIS middleware via the ENGINE_URL rewrite that launch.bat sets.
 
-ackend/parity_check.py replays scripted GRIP sequences (drought, rapid, streak
-override, escalation, close-call suspense) against both engines and diffs every
-directive field within float-rounding tolerance. Run the middleware on the launcher's port (auto-read, fallback 39107) and
+`backend/parity_check.py` replays scripted GRIP sequences (drought, rapid, streak override, escalation, close-call suspense) against both engines and diffs every directive field within float-rounding tolerance. Run the middleware on the launcher's port (auto-read, fallback 39107) and `npx next start --port 3600` (without ENGINE_URL, after `next build`), then:
 
-px next start --port 3600 (without ENGINE_URL, after 
-ext build), then:
-
-``powershell
+```powershell
 cd backend
 python parity_check.py --python-base http://127.0.0.1:8000 --ts-base http://127.0.0.1:3600
-``
+```
 
-Asset tiering differs online: the TS port serves the static base catalog only
-(the demo ships exactly those files), so esolve_asset always returns the base
-clip and esolve_bed_asset returns "" (the frontend synthesizes the soft pad).
+Asset tiering differs online: the TS port serves the static base catalog only (the demo ships exactly those files), so `resolve_asset` always returns the base clip and `resolve_bed_asset` returns `""` (the frontend synthesizes the soft pad).

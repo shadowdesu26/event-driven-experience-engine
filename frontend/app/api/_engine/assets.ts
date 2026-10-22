@@ -38,6 +38,12 @@ export function resolve_bed_asset(_theme: string): string {
   return "";
 }
 
+export function resolve_ambient_asset(_theme: string, fallback = ""): string {
+  // Stable per theme so the frontend never restarts the loop between spins.
+  void _theme;
+  return fallback;
+}
+
 export function resolve_suspense_asset(_theme: string, fallback: string): string {
   void _theme;
   return fallback;

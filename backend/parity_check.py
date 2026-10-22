@@ -109,6 +109,23 @@ SCENARIOS: list[tuple[str, list[tuple]]] = [
             ("NEAR_WIN", "reels_spinning", 0, 25, ["🍒", "🍒", "🍒", "🍒", "🍋"], 12, 0),
         ],
     ),
+    (
+        "net-profit gate (LDW silences celebration, drought continues)",
+        [
+            ("GAME_START", "resolved", 0, 25, ["🍒", "7", "BAR", "⭐", "💎"], 0, 0),
+            ("SPIN_RESULT", "resolved", 10, 25, ["🍒", "🍒", "🍇", "🔔", "BAR"], 3, 0),
+            ("SPIN_RESULT", "resolved", 25, 25, ["🍒", "🍒", "🍇", "🔔", "BAR"], 6, 0),
+            ("SPIN_RESULT", "resolved", 50, 25, ["🍒", "🍒", "🍇", "🔔", "BAR"], 9, 0),
+        ],
+    ),
+    (
+        "ambient continuity (same loop path + volume across spins)",
+        [
+            ("GAME_START", "resolved", 0, 25, ["🍒", "7", "BAR", "⭐", "💎"], 0, 0),
+            ("NO_WIN", "resolved", 0, 25, ["🍒", "🍋", "🔕", "🔔", "BAR"], 3, 0),
+            ("SPIN_RESULT", "resolved", 50, 25, ["🍒", "🍒", "🍇", "🔔", "BAR"], 6, 0),
+        ],
+    ),
 ]
 
 
@@ -269,6 +286,10 @@ def main() -> int:
             diff("audio", py_response.get("audio"), ts_response.get("audio"), 0.011, problems)
             diff("bedtrack_path", py_response.get("bedtrack_path"), ts_response.get("bedtrack_path"), 0, problems)
             diff("bedtrack_volume", py_response.get("bedtrack_volume"), ts_response.get("bedtrack_volume"), tolerance_for("bedtrack_volume"), problems)
+            diff("ambient_path", py_response.get("ambient_path"), ts_response.get("ambient_path"), 0, problems)
+            diff("ambient_volume", py_response.get("ambient_volume"), ts_response.get("ambient_volume"), tolerance_for("bedtrack_volume"), problems)
+            diff("net_profit", py_response.get("net_profit"), ts_response.get("net_profit"), 0.011, problems)
+            diff("is_true_profit", py_response.get("is_true_profit"), ts_response.get("is_true_profit"), 0, problems)
             diff("tempo", py_response.get("tempo"), ts_response.get("tempo"), 0, problems)
             diff("cadence_ms", py_response.get("cadence_ms"), ts_response.get("cadence_ms"), tolerance_for("cadence_ms"), problems)
             diff("losing_streak", py_response.get("losing_streak"), ts_response.get("losing_streak"), 0, problems)

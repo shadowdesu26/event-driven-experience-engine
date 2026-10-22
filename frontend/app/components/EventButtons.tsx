@@ -15,7 +15,9 @@ const EVENT_STYLES: Record<EventType, { border: string; dot: string }> = {
 
 const DEFAULT_PRESETS: Record<EventType, { win_amount: number; bet_amount: number; symbols: string[]; win_level: "NONE" | "LOW" | "MEDIUM" | "HIGH" | "JACKPOT" }> = {
   GAME_START: { win_amount: 0, bet_amount: 25, symbols: ["🍒", "7", "BAR", "⭐", "💎"], win_level: "NONE" },
-  SPIN_RESULT: { win_amount: 25, bet_amount: 25, symbols: ["🍒", "🍒", "🍇", "🔔", "BAR"], win_level: "LOW" },
+  // LDW demo: returns 10 on a 25 bet (net -15). Engine silences the celebration;
+  // the plain if/else baseline still jingles — that contrast IS the honesty demo.
+  SPIN_RESULT: { win_amount: 10, bet_amount: 25, symbols: ["🍒", "🍒", "🍇", "🔔", "BAR"], win_level: "LOW" },
   NO_WIN: { win_amount: 0, bet_amount: 25, symbols: ["🍒", "🍋", "🍇", "🔔", "BAR"], win_level: "NONE" },
   NEAR_WIN: { win_amount: 0, bet_amount: 25, symbols: ["7", "7", "7", "7", "🍒"], win_level: "NONE" },
   BONUS_TRIGGER: { win_amount: 250, bet_amount: 25, symbols: ["⭐", "🍒", "⭐", "🍋", "⭐"], win_level: "HIGH" },

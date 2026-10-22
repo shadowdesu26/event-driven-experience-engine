@@ -9,6 +9,7 @@ import {
   playPlainLoss,
   playPlainWin,
   runCues,
+  setAmbient,
   stopAll,
 } from "@/app/lib/experience";
 import { plainStingDirection } from "@/app/lib/plain";
@@ -80,9 +81,12 @@ export default function VideoPlayer({
         action: response.action,
         phase: response.phase,
         volume: response.volume,
+        soundtrack_path: response.soundtrack_path,
         audio: response.audio ?? DEFAULT_AUDIO_PROFILE,
         bedtrack_path: response.bedtrack_path,
         bedtrack_volume: response.bedtrack_volume,
+        ambient_path: response.ambient_path,
+        ambient_volume: response.ambient_volume,
         light_program: response.light_program,
         symbols,
       },
@@ -92,9 +96,11 @@ export default function VideoPlayer({
 
   // Suspense probe: run the cue ladder the middleware authored (heartbeat +
   // rim-light escalation). The plain if/else player has no pre-resolution
-  // awareness — no probe, no cues.
+  // awareness — no probe, no cues. Ambient keeps looping underneath: the probe
+  // carries the same ambient path/volume so the floor loop never restarts.
   useEffect(() => {
     if (!engineOn || !suspense?.cues?.length) return;
+    setAmbient(suspense.ambient_path ?? "", suspense.ambient_volume ?? 0);
     runCues(
       suspense.cues,
       suspense.audio ?? DEFAULT_AUDIO_PROFILE,

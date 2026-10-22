@@ -24,6 +24,15 @@ AUDIO_EXTENSIONS: frozenset[str] = frozenset(
 # without one still works: the frontend synthesizes the bed instead.
 BED_SUBDIR = "bed"
 
+# Persistent casino-floor ambient loop. Lives beside the drought bed on disk
+# (``<theme>/bed/``) when shipped, otherwise synthesized by the frontend as a
+# low warm drone on its own gain node. Unlike the one-shot sting channel, the
+# ambient channel is never torn down between spins — the middleware returns the
+# same path every directive and only moves the volume, so playback loops
+# smoothly without jarring cuts or restarts when the reels stop.
+AMBIENT_SYNTH = "warm_drone"
+AMBIENT_FALLBACK = ""  # empty = synthesize; mirrors resolve_bed_asset fallback
+
 # Keywords that mark a video as usable under a close-call suspense program.
 # Deliberately separate from KEYWORD_PRIORITY: a suspense sting has no GRIP
 # event type of its own, and folding these into the event catalog would let
@@ -206,6 +215,19 @@ def resolve_bed_asset(theme: str, fallback: str = "") -> str:
         if stem in ("bed", "ambient", "loop", "drone"):
             return path
     return beds[0]
+
+
+def resolve_ambient_asset(theme: str, fallback: str = "") -> str:
+    """Persistent ambient loop path for a theme, stable across spins.
+
+    Reuses the shipped bed directory so a theme with ``bed/ambient.*`` gets a
+    real file loop; otherwise returns ``fallback`` ("" = synthesize a low warm
+    drone in-browser). The key contract is stability: the same theme returns
+    the same path on every directive, so the frontend can keep one looped
+    element/voice alive and only ride its gain instead of restarting audio
+    every time the reels stop.
+    """
+    return resolve_bed_asset(theme, fallback=fallback)
 
 
 def resolve_asset(

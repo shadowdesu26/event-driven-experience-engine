@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass
 
 from asset_scanner import (
+    resolve_ambient_asset,
     resolve_asset,
     resolve_bed_asset,
     resolve_suspense_asset,
@@ -50,8 +51,10 @@ from suspense import (
 )
 
 __all__ = [
+    "AMBIENT_VOLUME",
     "BASE_VOLUMES",
     "BIG_WIN_THRESHOLD",
+    "CELEBRATORY_SOUNDTRACKS",
     "ESCALATION_POOL",
     "EVENT_ASSET_MAP",
     "HIGH_TIER_EVENTS",
@@ -61,6 +64,9 @@ __all__ = [
     "big_win_volume",
     "compute_multiplier",
     "compute_volume",
+    "is_ldw",
+    "is_true_profit",
+    "net_profit",
     "route_event",
 ]
 
@@ -182,6 +188,49 @@ DROUGHT_DOWNGRADE_TIERS: frozenset[str] = frozenset({"deep", "severe"})
 
 DEFAULT_BET = 25.0
 
+# --- Net-profit payout audio (anti-LDW) ------------------------------------
+#
+# A "loss disguised as a win" (LDW) returns credits but fewer than the bet
+# (0 < win < bet). Celebrating it with a win jingle teaches the player a
+# losing spin is a win. The gate below silences celebratory stings for LDWs
+# and reserves positive audio strictly for true profits (win >= bet).
+CELEBRATORY_SOUNDTRACKS: frozenset[str] = frozenset(
+    {
+        "/audio/win_chime.wav",
+        "/audio/celebration.wav",
+        "/audio/jackpot.wav",
+        "/audio/win_streak.wav",
+    }
+)
+
+
+def net_profit(win: float, bet: float) -> float:
+    """Net credits kept by the player (win - bet), rounded to 2dp."""
+    return round(win - bet, 2)
+
+
+def is_true_profit(win: float, bet: float) -> bool:
+    """True profit: a paying return at or above the stake.
+
+    Pushes (win == bet) keep their reward audio so the existing 1x SPIN_RESULT
+    flows don't change character; only strictly-smaller wins are silenced.
+    """
+    return win > 0 and win >= bet
+
+
+def is_ldw(win: float, bet: float) -> bool:
+    """Loss disguised as a win: pays something, but less than the stake."""
+    return 0 < win < bet
+
+
+# --- Seamless background music continuity -----------------------------------
+#
+# The sting channel is one-shot per spin, but the ambient floor loop must not
+# restart when the reels stop. The middleware returns the same ambient path on
+# every directive at a constant low volume; the frontend keeps one looped
+# voice/element alive and only rides its gain. No per-spin restart, no cut.
+AMBIENT_VOLUME: float = 0.10
+
 
 @dataclass
 class _Spin:
@@ -242,28 +291,71 @@ def big_win_volume(multiplier: float) -> float:
     return 0.8
 
 
-def compute_volume(event_type: str, multiplier: float, win: float = 0.0) -> float:
-    """Recommended audio playback volume (0.0-1.0) scaled by tier and multiplier."""
+def compute_volume(event_type: str, multiplier: float, win: float = 0.0, bet: float = DEFAULT_BET) -> float:
+    """Recommended audio playback volume (0.0-1.0) scaled by tier and multiplier.
+
+    Net-profit gate: a SPIN_RESULT LDW (0 < win < bet) never earns the 0.5 win
+    boost — it stays at the neutral base so a losing spin never sounds louder
+    than break-even.
+    """
     if event_type == "WIN_STREAK":
         return 1.0
     if event_type == "BIG_WIN":
         return big_win_volume(multiplier)
     volume = BASE_VOLUMES.get(event_type, 0.5)
     if event_type == "SPIN_RESULT" and win > 0:
-        volume = 0.5
+        volume = 0.5 if is_true_profit(win, bet) else BASE_VOLUMES.get(event_type, 0.35)
     return round(min(1.0, max(0.0, volume)), 2)
 
 
-def _is_win(event_type: str, win: float, escalated: bool) -> bool:
-    """Did this spin pay, or is it an identity win that pays by definition?
+def _is_win(event_type: str, win: float, bet: float | bool = DEFAULT_BET, escalated: bool | None = None) -> bool:
+    """Did this spin truly pay?
 
-    A zero-payout NEAR_WIN is a drought spin for the music bed — it cost the
-    player credits and won nothing — but it is still not a high-tier win for the
-    celebration override.
+    Only true profits (win >= bet) break the drought and start the post-win
+    bed cooldown. An LDW costs the player credits net, so the encouraging bed
+    keeps building through it instead of snapping shut on a fake win. A
+    zero-payout NEAR_WIN is likewise a drought spin. Escalated payouts (>=10x)
+    are true profits by construction.
+
+    The ``bet`` parameter was added with the net-profit gate; older callers
+    passing ``(event_type, win, escalated)`` still work.
     """
-    if win > 0 or escalated:
+    if escalated is None:
+        # Legacy 3-arg call: bet position actually holds the escalated flag.
+        escalated_flag = bool(bet)
+        bet_value = DEFAULT_BET
+    else:
+        escalated_flag = bool(escalated)
+        bet_value = float(bet) if not isinstance(bet, bool) else DEFAULT_BET
+    if escalated_flag:
         return True
-    return event_type in HIGH_TIER_EVENTS or event_type == "WIN_STREAK"
+    if win > 0 and win >= bet_value:
+        return True
+    return False
+
+
+def _apply_net_profit_gate(directive: dict, spin: _Spin) -> dict:
+    """Strip celebratory audio from LDW directives (0 < win < bet).
+
+    Neutral beds (tension/dead-spin/reel) survive — they are not positive cues.
+    Only celebratory stings (win chime, celebration, jackpot, streak) are
+    silenced to "" at 0.0 volume with pulse dropped, so a net loss never
+    sounds like a win.
+    """
+    if not is_ldw(spin.win, spin.bet):
+        return directive
+    soundtrack = directive.get("soundtrack_path", "")
+    if soundtrack in CELEBRATORY_SOUNDTRACKS:
+        directive["soundtrack_path"] = ""
+        directive["volume"] = 0.0
+        directive["ui_pulse"] = "none"
+        net = net_profit(spin.win, spin.bet)
+        directive["message"] = (
+            f"{directive.get('message', '')} Net-profit gate: win {spin.win:.0f} < "
+            f"bet {spin.bet:.0f} (net {net:+.0f}, {compute_multiplier(spin.win, spin.bet):.2f}x) — "
+            f"celebration silenced, no positive audio for a net loss."
+        )
+    return directive
 
 
 def _drought_adjusted_pulse(pulse: str, state: SessionState) -> str:
@@ -304,7 +396,10 @@ def _finalize(
     profile = audio_profile(state.tempo, state.losing_streak)
     temperament = light_temperament(state.losing_streak)
 
-    is_paying = spin.win > 0 or spin.event_type in HIGH_TIER_EVENTS
+    # Net-profit prominence: only a true profit (win >= bet) escapes pacing
+    # attenuation. An LDW stays softened by the consoling envelope like any
+    # other drought spin, so it can never land louder than a real win.
+    is_paying = is_true_profit(spin.win, spin.bet)
     pulse = directive.get("ui_pulse", "none")
     if not is_paying:
         pulse = _drought_adjusted_pulse(pulse, state)
@@ -326,6 +421,13 @@ def _finalize(
     directive["audio"] = pacing["audio"]
     directive["bedtrack_path"] = resolve_bed_asset(spin.theme)
     directive["bedtrack_volume"] = bed_volume(state)
+    # Seamless ambient: same path every directive for a theme, constant low
+    # volume. The frontend keeps one looped voice alive and rides its gain —
+    # never restarts it when the reels stop.
+    directive["ambient_path"] = resolve_ambient_asset(spin.theme)
+    directive["ambient_volume"] = AMBIENT_VOLUME
+    directive["net_profit"] = net_profit(spin.win, spin.bet)
+    directive["is_true_profit"] = is_true_profit(spin.win, spin.bet)
     directive["tempo"] = state.tempo
     directive["cadence_ms"] = pacing["cadence_ms"]
     directive["losing_streak"] = state.losing_streak
@@ -374,6 +476,10 @@ def _route_probe(spin: _Spin, state: SessionState) -> dict:
         "audio": pacing["audio"],
         "bedtrack_path": resolve_bed_asset(spin.theme),
         "bedtrack_volume": bed_volume(state),
+        "ambient_path": resolve_ambient_asset(spin.theme),
+        "ambient_volume": AMBIENT_VOLUME,
+        "net_profit": net_profit(spin.win, spin.bet),
+        "is_true_profit": is_true_profit(spin.win, spin.bet),
         "tempo": state.tempo,
         "cadence_ms": pacing["cadence_ms"],
         "losing_streak": state.losing_streak,
@@ -513,7 +619,7 @@ def _allocate(spin: _Spin, multiplier: float, is_high_tier: bool, escalated: boo
     directive["asset_path"] = resolve_asset(
         spin.theme, event_type, multiplier, fallback=base["asset_path"]
     )
-    directive["volume"] = compute_volume(event_type, multiplier, spin.win)
+    directive["volume"] = compute_volume(event_type, multiplier, spin.win, spin.bet)
     if event_type == "BIG_WIN":
         directive["message"] = (
             f"Big Win allocated: Payout {spin.win:.0f} credits ({multiplier:.1f}x bet). "
@@ -528,11 +634,25 @@ def _allocate(spin: _Spin, multiplier: float, is_high_tier: bool, escalated: boo
         )
         directive["ui_pulse"] = "subtle"
     elif event_type == "SPIN_RESULT":
-        if spin.win > 0:
+        if is_ldw(spin.win, spin.bet):
+            # LDW: keep the neutral reel video, but silence the win jingle.
+            # Positive audio is reserved strictly for true profits.
+            net = net_profit(spin.win, spin.bet)
+            directive["soundtrack_path"] = ""
+            directive["volume"] = 0.0
+            directive["ui_pulse"] = "none"
+            directive["message"] = (
+                f"Payline returns {spin.win:.0f} on a {spin.bet:.0f} bet "
+                f"(net {net:+.0f}, {multiplier:.2f}x): loss disguised as a win — "
+                f"celebration silenced, neutral result only."
+            )
+        elif spin.win > 0:
+            net = net_profit(spin.win, spin.bet)
             directive["soundtrack_path"] = "/audio/win_chime.wav"
             directive["ui_pulse"] = "subtle"
             directive["message"] = (
-                f"Payline match: {spin.win:.0f} credits awarded. Reward audio allocated."
+                f"Payline match: {spin.win:.0f} credits awarded "
+                f"(net {net:+.0f} on {spin.bet:.0f} bet). Reward audio allocated."
             )
         else:
             directive["message"] = "Reels stopped: standard spin result recorded."
@@ -542,7 +662,10 @@ def _allocate(spin: _Spin, multiplier: float, is_high_tier: bool, escalated: boo
             f"Dragon descent and grand fanfare allocated."
         )
 
-    return {"event_type": event_type, "action": "play", **directive, "win_multiplier": multiplier}
+    allocated = {"event_type": event_type, "action": "play", **directive, "win_multiplier": multiplier}
+    # Generic safety net: any LDW that still carries a celebratory sting
+    # (e.g. a misclassified BIG_WIN with win < bet) gets silenced here.
+    return _apply_net_profit_gate(allocated, spin)
 
 
 def _route_resolved(spin: _Spin, state: SessionState) -> dict:
@@ -555,11 +678,16 @@ def _route_resolved(spin: _Spin, state: SessionState) -> dict:
         and spin.win > 0
         and multiplier >= BIG_WIN_THRESHOLD
     )
+    # Net-profit streaks: only true profits advance the win streak and close
+    # the drought. An LDW keeps the drought building so the bed stays seamless
+    # instead of snapping shut on a fake win.
+    true_profit = is_true_profit(spin.win, spin.bet)
+    effective_high_tier = (is_high_tier and true_profit) or escalated
 
     state.ingest(
         spin.event_type,
-        is_win=_is_win(spin.event_type, spin.win, escalated),
-        is_high_tier=is_high_tier or escalated,
+        is_win=true_profit or escalated,
+        is_high_tier=effective_high_tier,
         timestamp=parse_timestamp(spin.timestamp),
     )
     released = state.consume_suspense()

@@ -611,9 +611,15 @@ export function cancelCues() {
 
 // --- background bed ----------------------------------------------------
 
-function stopBed() {
+let bedPath = "";
+
+function stopBedHard() {
   if (bedElement) {
-    bedElement.pause();
+    try {
+      bedElement.pause();
+    } catch {
+      // already paused
+    }
     bedElement.src = "";
     bedElement = null;
   }
@@ -622,6 +628,22 @@ function stopBed() {
     bedVoices = null;
   }
   bedGain = null;
+  bedPath = "";
+}
+
+/** Fade the bed to silence but keep the channel alive for seamless re-entry. */
+function parkBed() {
+  const ctx = audioCtx;
+  if (bedElement) {
+    // Keep looping silently at the same playhead — resuming is a gain ride,
+    // never a restart, so the music never cuts when the reels stop.
+    bedElement.volume = 0;
+    return;
+  }
+  if (bedGain && ctx) {
+    bedGain.gain.cancelScheduledValues(ctx.currentTime);
+    bedGain.gain.setTargetAtTime(0.0001, ctx.currentTime, BED_RAMP_SECONDS / 3);
+  }
 }
 
 /**
@@ -629,31 +651,67 @@ function stopBed() {
  *
  * Prefers a shipped file when the theme provides one, otherwise synthesizes a
  * soft pad. Independent of the sting channel, so it survives a win cutting in.
+ *
+ * Seamless-continuity contract: the channel is never torn down between spins.
+ * A zero volume parks the loop at silence (same playhead / live oscillators)
+ * instead of destroying it, so the next drought fades back in without a
+ * jarring cut or restart.
  */
 export function setBed(path: string, volume: number) {
   const target = Math.min(1, Math.max(0, volume));
 
-  if (target <= 0) {
-    stopBed();
-    return;
-  }
-
   if (path) {
-    if (!bedElement) {
+    // File bed: one looped element per path. Same path across spins only
+    // rides the volume — the playhead never restarts.
+    if (!bedElement || bedPath !== path) {
+      if (bedElement) {
+        try {
+          bedElement.pause();
+        } catch {
+          // already paused
+        }
+      }
       const element = new Audio(path);
       element.loop = true;
       element.crossOrigin = "anonymous";
       element.volume = target;
       bedElement = element;
-    } else {
-      bedElement.volume = target;
+      bedPath = path;
+      // Tear down any synth pad so file and synth never stack.
+      if (bedVoices && audioCtx) {
+        fadeOutTrack(bedVoices, BED_RAMP_SECONDS);
+        bedVoices = null;
+      }
+      bedGain = null;
+      void bedElement.play().catch(() => {});
+      return;
     }
-    void bedElement.play().catch(() => {});
+    bedElement.volume = target;
+    if (target <= 0) parkBed();
+    else void bedElement.play().catch(() => {});
+    return;
+  }
+
+  // Synth bed path ("": no file shipped).
+  if (target <= 0) {
+    parkBed();
     return;
   }
 
   const ctx = getAudioContext();
   if (!ctx || !masterGain) return;
+
+  // Switching from a file bed to the synth pad: park the file loop first so
+  // the two never stack.
+  if (bedElement) {
+    try {
+      bedElement.pause();
+    } catch {
+      // already paused
+    }
+    bedElement = null;
+    bedPath = "";
+  }
 
   if (!bedGain) {
     const gain = ctx.createGain();
@@ -687,6 +745,128 @@ export function setBed(path: string, volume: number) {
 
   bedGain.gain.cancelScheduledValues(ctx.currentTime);
   bedGain.gain.setTargetAtTime(target, ctx.currentTime, BED_RAMP_SECONDS / 3);
+}
+
+// --- persistent ambient loop --------------------------------------------
+//
+// The casino-floor bed that must never cut when the reels stop. One looped
+// channel per session: the same path every directive only rides the gain, so
+// playback continues across spins. Zero volume parks at silence (same
+// playhead / live oscillators) instead of destroying the channel.
+
+const AMBIENT_RAMP_SECONDS = 2.0;
+
+let ambientGain: GainNode | null = null;
+let ambientVoices: AudioTrack | null = null;
+let ambientElement: HTMLAudioElement | null = null;
+let ambientPath = "";
+
+function stopAmbientHard() {
+  if (ambientElement) {
+    try {
+      ambientElement.pause();
+    } catch {
+      // already paused
+    }
+    ambientElement.src = "";
+    ambientElement = null;
+  }
+  if (ambientVoices && audioCtx) {
+    fadeOutTrack(ambientVoices, AMBIENT_RAMP_SECONDS);
+    ambientVoices = null;
+  }
+  ambientGain = null;
+  ambientPath = "";
+}
+
+/**
+ * Keep the ambient floor loop running seamlessly across spins.
+ *
+ * Same-path directives only move the gain — the loop is never restarted, so
+ * there are no jarring cuts when a spin resolves. A path change crossfades by
+ * retiring the old channel and starting the new one.
+ */
+export function setAmbient(path: string, volume: number) {
+  if (!engineGate) return;
+  const target = Math.min(1, Math.max(0, volume));
+
+  if (path) {
+    if (!ambientElement || ambientPath !== path) {
+      if (ambientElement) {
+        try {
+          ambientElement.pause();
+        } catch {
+          // already paused
+        }
+      }
+      if (ambientVoices && audioCtx) {
+        fadeOutTrack(ambientVoices, AMBIENT_RAMP_SECONDS);
+        ambientVoices = null;
+      }
+      ambientGain = null;
+      const element = new Audio(path);
+      element.loop = true;
+      element.crossOrigin = "anonymous";
+      element.volume = target;
+      ambientElement = element;
+      ambientPath = path;
+      void ambientElement.play().catch(() => {});
+      return;
+    }
+    ambientElement.volume = target;
+    if (target > 0) void ambientElement.play().catch(() => {});
+    return;
+  }
+
+  // Synth drone (no file shipped): low warm root + fifth, deliberately below
+  // the drought bed's register so the two layers never mask each other.
+  const ctx = getAudioContext();
+  if (!ctx || !masterGain) return;
+
+  if (ambientElement) {
+    try {
+      ambientElement.pause();
+    } catch {
+      // already paused
+    }
+    ambientElement = null;
+    ambientPath = "";
+  }
+
+  if (!ambientGain) {
+    const gain = ctx.createGain();
+    gain.gain.value = 0.0001;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 420;
+    gain.connect(filter);
+    filter.connect(masterGain);
+    ambientGain = gain;
+
+    const now = ctx.currentTime;
+    const track: AudioTrack = { gain, oscillators: [] };
+    ambientVoices = track;
+
+    [55, 82.41, 110].forEach((freq, index) => {
+      const osc = ctx.createOscillator();
+      const voice = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      voice.gain.setValueAtTime(0.0001, now);
+      voice.gain.linearRampToValueAtTime(0.035 / (index + 1), now + 3.0);
+      osc.connect(voice);
+      voice.connect(gain);
+      osc.start(now);
+      track.oscillators.push(osc);
+    });
+  }
+
+  ambientGain.gain.cancelScheduledValues(ctx.currentTime);
+  ambientGain.gain.setTargetAtTime(
+    Math.max(0.0001, target),
+    ctx.currentTime,
+    AMBIENT_RAMP_SECONDS / 3,
+  );
 }
 
 // --- automatic acoustic care -------------------------------------------
@@ -724,8 +904,9 @@ function applyAcousticCare() {
 
 /**
  * Ingest a resolved directive: play the sting and the symbol-depth readout,
- * aim the sustained lighting, and set the drought bed. Also advances the
- * acoustic care chain — every resolved spin nudges the softening forward.
+ * aim the sustained lighting, and set the drought bed plus the persistent
+ * ambient loop. Also advances the acoustic care chain — every resolved spin
+ * nudges the softening forward.
  */
 export function ingestDirective(
   directive: {
@@ -733,10 +914,13 @@ export function ingestDirective(
     action: string;
     phase?: string;
     volume?: number;
+    soundtrack_path?: string;
     audio?: AudioProfileSpec;
     light_program?: LightProgram;
     bedtrack_path?: string;
     bedtrack_volume?: number;
+    ambient_path?: string;
+    ambient_volume?: number;
     /** Center-line symbols of the landed spin, for the depth readout. */
     symbols?: string[];
   },
@@ -745,7 +929,8 @@ export function ingestDirective(
   // Engine off: stay silent, tear down anything still sounding.
   if (!engineGate) {
     cancelCues();
-    stopBed();
+    stopBedHard();
+    stopAmbientHard();
     return;
   }
   getAudioContext();
@@ -758,14 +943,22 @@ export function ingestDirective(
   applyAcousticCare();
 
   if (directive.action === "play") {
-    playSting(directive.event_type, directive.volume ?? DEFAULT_STING_VOLUME);
+    // Net-profit gate: a silenced LDW arrives with an empty soundtrack and
+    // zero volume — no positive sting, only the neutral symbol-depth readout.
+    const silenced =
+      (directive.soundtrack_path === "" && (directive.volume ?? 0) <= 0) ||
+      (directive.volume ?? DEFAULT_STING_VOLUME) <= 0;
+    if (!silenced) {
+      playSting(directive.event_type, directive.volume ?? DEFAULT_STING_VOLUME);
+    }
     // Cabinet spins already read out reel by reel as each reel stopped, so the
     // end-of-spin cascade would just replay the final reel — skip it there.
     const reelsJustRead = performance.now() - lastReelLandAt < REEL_READOUT_SUPPRESS_MS;
     if (directive.symbols?.length && !reelsJustRead) {
       // Duck the cascade under louder stings so the win keeps the headroom:
       // a 1.0-volume jackpot resolves to 0.55, a quiet 0.35 spin to ~0.84.
-      const stingVolume = directive.volume ?? DEFAULT_STING_VOLUME;
+      // Silenced LDWs keep full readout depth (duck = 1): clicks, not fanfare.
+      const stingVolume = silenced ? 0 : (directive.volume ?? DEFAULT_STING_VOLUME);
       playSymbolDepths(directive.symbols, 1 - 0.45 * Math.min(1, Math.max(0, stingVolume)));
     }
   }
@@ -775,12 +968,14 @@ export function ingestDirective(
   }
 
   setBed(directive.bedtrack_path ?? "", directive.bedtrack_volume ?? 0);
+  setAmbient(directive.ambient_path ?? "", directive.ambient_volume ?? 0);
 }
 
 /** Silence everything. Used on unmount and when the engine gate closes. */
 export function stopAll() {
   cancelCues();
-  stopBed();
+  stopBedHard();
+  stopAmbientHard();
   if (activeSting && audioCtx) {
     fadeOutTrack(activeSting, STING_CROSSFADE_SECONDS);
     activeSting = null;

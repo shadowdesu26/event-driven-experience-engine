@@ -149,6 +149,19 @@ class GripResponse(BaseModel):
     bedtrack_volume: float = Field(
         default=0.0, ge=0.0, le=1.0, description="Encouraging bed level during a losing streak"
     )
+    ambient_path: str = Field(
+        default="",
+        description="Persistent casino-floor ambient loop (empty = synthesize a warm drone). Stable per theme so the frontend never restarts it between spins.",
+    )
+    ambient_volume: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="Always-on ambient level; constant so the loop rides smoothly across spins"
+    )
+    net_profit: float = Field(
+        default=0.0, description="Net credits kept (win_amount - bet_amount). Negative on a loss disguised as a win."
+    )
+    is_true_profit: bool = Field(
+        default=False, description="True when win_amount >= bet_amount with win > 0; only then may positive audio play"
+    )
     tempo: Tempo = Field(default="steady", description="Smoothed player spin cadence band")
     cadence_ms: float = Field(
         default=0.0, ge=0.0, description="Smoothed milliseconds between spins; 0 until two spins land"

@@ -162,12 +162,15 @@ class SessionState:
 
         * ``win_streak`` counts consecutive **high-tier** wins and is what the
           WIN_STREAK state override keys off.
-        * ``losing_streak`` counts consecutive **zero-payout** spins and is what
-          the drought bed keys off.
+        * ``losing_streak`` counts consecutive **non-profiting** spins and is
+          what the drought bed keys off.
 
-        A small SPIN_RESULT payout breaks the high-tier streak (so the celebration
-        override releases) and also breaks the drought (so the bed fades out) —
-        but it is itself neither, which is why the two flags are separate.
+        Net-profit rule: only true profits (win >= bet) break the drought. A
+        loss disguised as a win (0 < win < bet) costs credits net, so it extends
+        the drought instead of snapping the bed shut on a fake win. A small
+        true-profit SPIN_RESULT still breaks the high-tier streak (so the
+        celebration override releases) and closes the bed — but an LDW is
+        itself neither.
         """
         now = timestamp if timestamp is not None else time.time()
 
