@@ -713,8 +713,46 @@ def _allocate(spin: _Spin, multiplier: float, is_high_tier: bool, escalated: boo
     return _apply_net_profit_gate(allocated, spin)
 
 
+def _gate_tension(spin: _Spin, state: SessionState) -> str:
+    """Fatigue gate for a resolved NEAR_WIN tension riser.
+
+    Returns ``""`` when the riser may play (and logs it as a tease), otherwise the
+    denial note the cooldown produced.
+    """
+    signal = detect_close_call(spin.symbols, spin.event_type, spin.win, spin.bet)
+    severity = signal.severity if signal is not None else 2
+    now = time.time()
+    allowed, note = suspense_allowed(state, severity, now)
+    if not allowed:
+        return note
+    state.record_tease(now)
+    return ""
+
+
+def _hold_tension(directive: dict, spin: _Spin, multiplier: float, note: str) -> dict:
+    """Hold the tension riser under the cooldown: the result lands neutrally.
+
+    Same treatment as a silenced LDW: the neutral reel clip, no riser, no pulse.
+    """
+    neutral = EVENT_ASSET_MAP["SPIN_RESULT"]
+    directive["asset_path"] = resolve_asset(
+        spin.theme, "SPIN_RESULT", multiplier, fallback=neutral["asset_path"]
+    )
+    directive["asset_type"] = neutral["asset_type"]
+    directive["soundtrack_path"] = ""
+    directive["volume"] = 0.0
+    directive["ui_pulse"] = "none"
+    directive["message"] = f"Near-win tension held: tease denied ({note}). Neutral result only."
+    return directive
+
+
 def _route_resolved(spin: _Spin, state: SessionState) -> dict:
-    """Allocate for a landed outcome and advance all pacing state."""
+    """Allocate for a landed outcome and advance all pacing state.
+
+    A resolved NEAR_WIN carries its own tension riser. When the probe did not
+    grant a ladder for this spin (denied, skipped, or never sent), the riser is a
+    tease in its own right and answers to the same fatigue gate.
+    """
     multiplier = compute_multiplier(spin.win, spin.bet)
     is_high_tier = spin.event_type in HIGH_TIER_EVENTS
     escalated = (
@@ -737,7 +775,13 @@ def _route_resolved(spin: _Spin, state: SessionState) -> dict:
     )
     released = state.consume_suspense()
 
+    hold = ""
+    if released is None and spin.event_type == "NEAR_WIN" and not escalated:
+        hold = _gate_tension(spin, state)
+
     directive = _allocate(spin, multiplier, is_high_tier, escalated, state)
+    if hold:
+        directive = _hold_tension(directive, spin, multiplier, hold)
     return _finalize(directive, spin, state, "release" if released else "play", released)
 
 

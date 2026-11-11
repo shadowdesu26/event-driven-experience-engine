@@ -673,8 +673,40 @@ function allocate(
   return apply_net_profit_gate(allocated, spin);
 }
 
+/** Fatigue gate for a resolved NEAR_WIN riser: "" when it may play, else the denial note. */
+function gate_tension(spin: Spin, state: SessionState): string {
+  const signal = detect_close_call(spin.symbols, spin.event_type, spin.win, spin.bet);
+  const severity = signal !== null ? signal.severity : 2;
+  const now = Date.now() / 1000;
+  const [allowed, note] = suspense_allowed(state, severity, now);
+  if (!allowed) return note;
+  state.record_tease(now);
+  return "";
+}
+
+/** Hold the tension riser under the cooldown: the result lands neutrally, silent. */
+function hold_tension(
+  directive: Record<string, unknown>,
+  spin: Spin,
+  multiplier: number,
+  note: string,
+): Record<string, unknown> {
+  const neutral = EVENT_ASSET_MAP.SPIN_RESULT;
+  return {
+    ...directive,
+    asset_path: resolve_asset(spin.theme, "SPIN_RESULT", multiplier, neutral.asset_path),
+    asset_type: neutral.asset_type,
+    soundtrack_path: "",
+    volume: 0.0,
+    ui_pulse: "none",
+    message: `Near-win tension held: tease denied (${note}). Neutral result only.`,
+  };
+}
+
 function route_resolved(spin: Spin, state: SessionState): Record<string, unknown> {
-  // Allocate for a landed outcome and advance all pacing state.
+  // Allocate for a landed outcome and advance all pacing state. A resolved
+  // NEAR_WIN without a granted ladder is a tease in its own right and answers
+  // to the same fatigue gate as the probe path.
   const multiplier = compute_multiplier(spin.win, spin.bet);
   const is_high_tier = HIGH_TIER_EVENTS.includes(spin.event_type);
   const escalated =
@@ -694,7 +726,15 @@ function route_resolved(spin: Spin, state: SessionState): Record<string, unknown
   );
   const released = state.consume_suspense() as Record<string, unknown> | null;
 
-  const directive = allocate(spin, multiplier, is_high_tier, escalated, state);
+  let hold = "";
+  if (released === null && spin.event_type === "NEAR_WIN" && !escalated) {
+    hold = gate_tension(spin, state);
+  }
+
+  let directive = allocate(spin, multiplier, is_high_tier, escalated, state);
+  if (hold) {
+    directive = hold_tension(directive, spin, multiplier, hold);
+  }
   return finalize(directive, spin, state, released ? "release" : "play", released);
 }
 

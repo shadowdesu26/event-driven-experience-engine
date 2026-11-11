@@ -86,6 +86,14 @@ Dead spins and openings are never teased — a pulse that fires on nothing teach
 - rolling tease budget — at most 3 ladders per 60s per session (cleared on `GAME_START`)
 - a higher pending severity always cuts through a shorter predecessor's cooldown
 
+The gate covers every tease, not only the probe path. A resolved `NEAR_WIN`
+plays its tension riser (video, soundtrack, pulse) only when no ladder was
+granted for that spin and the same gate allows it:
+
+- an allowed riser is logged as a tease, so the next probe or riser waits out the cooldown
+- a held riser lands as the neutral reel clip with no soundtrack, no pulse, and volume `0.0`, the same treatment as a silenced LDW. The message reads `Near-win tension held: tease denied (...)`
+- a ladder's own release is never re-gated; the riser at release is the payoff of that tease
+
 Denied probes answer `phase: "idle"` with an audit message naming the policy ("refractory holds: …", "tease budget spent: …"), so QA sees *why* the drama was held back.
 
 ### Mood fusion before the ladder
@@ -164,6 +172,8 @@ The frontend is a faithful executor of the envelopes above, plus two comfort lay
 
 - **Symbol sound-depth readout** — the landed center line answers with tiered voices: low-tier symbols click, mid-tier hum, top-tier symbols sound deep. A silenced LDW keeps the clicks but drops any fanfare, matching the net-profit gate.
 - **Automatic care chain** — with session age the treble ceiling glides down and bass warmth glides up (full softness after 60 resolved spins, `setTargetAtTime` throughout, never stepped), so hours of play never build up sharpness or listening fatigue. Closing the engine gate still silences everything instantly.
+- **Routed media** — the care chain now covers the audio the player hears most: the clip's own soundtrack and any shipped bed or ambient file are routed into the same graph as the synthesized voices. Routed media is levelled by its gain, never `element.volume` (Safari ignores that once a source is routed). Routing waits for a running AudioContext; the spin and button handlers start it inside the click. The engine-off baseline bypasses the chain, so the A/B comparison stays bare.
+- **Known limit** — a directive's `volume` still drives only the synthesized sting. A clip plays its embedded audio at unity, so a silenced sting (LDW or held riser) mutes the sting, not the clip's own soundtrack.
 
 ## Session state
 

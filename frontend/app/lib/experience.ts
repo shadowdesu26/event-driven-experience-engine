@@ -17,19 +17,24 @@
  *
  * Audio graph:
  *
- *     sting voices ─┐
- *     heartbeat   ──┼─> masterGain ─> bass shelf ─> treble care ─> ceiling lowpass ─> limiter ─> destination
- *     bed pad     ──┘                 (warm low     (notches sharp  (caps the top end, drifts
- *     symbol readout─┘                 end)          piercing overtones)  softer with session age)
+ *     sting voices, heartbeat, bed pad, symbol readout, count-up ticks ─┐
+ *     clip soundtrack (<video>) and shipped file loops (bed, ambient) ──┤
+ *                                                                        └─> masterGain ─> bass shelf ─> treble notch ─> ceiling lowpass ─> limiter ─> destination
+ *                                                                              (warm low end)  (cuts piercing band)  (caps the top end, drifts softer with age)
+ *
+ *     engine off, plain voices ─> plainBus ─> destination   (bypasses the care chain: bare A/B baseline)
  *
  * The sting channel crossfades per directive. The bed channel is independent,
  * which is what lets a losing streak carry soft background music through a
  * win sting rather than being replaced by it.
  *
- * The care chain after masterGain is **automatic**: every voice passes through
- * a fixed treble-cut + bass-warmth shelf so nothing can stab the ear, and the
- * ceiling drifts lower (and the shelf warmer) as the session gets long. The
- * limiter keeps the boosted low end from ever clipping.
+ * The care chain after masterGain is **automatic**: every engine-driven sound,
+ * including a clip's own soundtrack and any shipped file loop, passes through a
+ * fixed treble-cut + bass-warmth shelf so nothing can stab the ear. The ceiling
+ * drifts lower (and the shelf warmer) as the session gets long, and the limiter
+ * keeps the boosted low end from ever clipping. Routed media is levelled by its
+ * route gain, never element.volume, because Safari ignores element.volume once a
+ * source is routed.
  */
 
 import {
@@ -61,6 +66,14 @@ let activeSting: AudioTrack | null = null;
 let careShelf: BiquadFilterNode | null = null; // bass warmth, low-shelf
 let careNotch: BiquadFilterNode | null = null; // cuts sharp piercing overtones
 let careCeiling: BiquadFilterNode | null = null; // lowpass cap on the top end
+
+// Engine-off baseline bus: the plain if/else voices bypass the care chain so the
+// A/B comparison is bare on both sides.
+let plainBus: GainNode | null = null;
+
+// Media elements routed into the care chain, and the clip currently on screen.
+const mediaRoutes = new WeakMap<HTMLMediaElement, MediaRoute>();
+let clipElement: HTMLMediaElement | null = null;
 
 // Resolved-spin counter that drifts the care chain warmer over a long session.
 let resolvedSpinCount = 0;
@@ -142,6 +155,9 @@ function getAudioContext(): AudioContext | null {
       careNotch.connect(careCeiling);
       careCeiling.connect(limiter);
       limiter.connect(audioCtx.destination);
+
+      plainBus = audioCtx.createGain();
+      plainBus.connect(audioCtx.destination);
     }
     if (audioCtx.state === "suspended") {
       audioCtx.resume().catch(() => {});
@@ -618,11 +634,7 @@ let bedPath = "";
 
 function stopBedHard() {
   if (bedElement) {
-    try {
-      bedElement.pause();
-    } catch {
-      // already paused
-    }
+    retireMediaElement(bedElement);
     bedElement.src = "";
     bedElement = null;
   }
@@ -639,9 +651,9 @@ function stopBedHard() {
 function parkBed() {
   const ctx = audioCtx;
   if (bedElement) {
-    // Keep looping silently at the same playhead — resuming is a gain ride,
+    // Keep looping silently at the same playhead — resuming is a level ride,
     // never a restart, so the music never cuts when the reels stop.
-    bedElement.volume = 0;
+    setMediaLevel(bedElement, 0, BED_RAMP_SECONDS);
     return;
   }
   if (bedGain && ctx) {
@@ -667,19 +679,12 @@ export function setBed(path: string, volume: number) {
 
   if (path) {
     // File bed: one looped element per path. Same path across spins only
-    // rides the volume — the playhead never restarts.
+    // rides the level — the playhead never restarts.
     if (!bedElement || bedPath !== path) {
-      if (bedElement) {
-        try {
-          bedElement.pause();
-        } catch {
-          // already paused
-        }
-      }
+      if (bedElement) retireMediaElement(bedElement);
       const element = new Audio(path);
       element.loop = true;
       element.crossOrigin = "anonymous";
-      element.volume = target;
       bedElement = element;
       bedPath = path;
       // Tear down any synth pad so file and synth never stack.
@@ -688,12 +693,15 @@ export function setBed(path: string, volume: number) {
         bedVoices = null;
       }
       bedGain = null;
-      void bedElement.play().catch(() => {});
+      routeMediaThroughCare(element);
+      setMediaLevel(element, target);
+      void element.play().catch(() => {});
       return;
     }
-    bedElement.volume = target;
-    if (target <= 0) parkBed();
-    else void bedElement.play().catch(() => {});
+    // A loop that started before the context was running joins the care chain now.
+    routeMediaThroughCare(bedElement);
+    setMediaLevel(bedElement, target, BED_RAMP_SECONDS);
+    if (target > 0) void bedElement.play().catch(() => {});
     return;
   }
 
@@ -706,14 +714,10 @@ export function setBed(path: string, volume: number) {
   const ctx = getAudioContext();
   if (!ctx || !masterGain) return;
 
-  // Switching from a file bed to the synth pad: park the file loop first so
+  // Switching from a file bed to the synth pad: retire the file loop first so
   // the two never stack.
   if (bedElement) {
-    try {
-      bedElement.pause();
-    } catch {
-      // already paused
-    }
+    retireMediaElement(bedElement);
     bedElement = null;
     bedPath = "";
   }
@@ -770,11 +774,7 @@ let ambientTargetVolume = 0;
 
 function stopAmbientHard() {
   if (ambientElement) {
-    try {
-      ambientElement.pause();
-    } catch {
-      // already paused
-    }
+    retireMediaElement(ambientElement);
     ambientElement.src = "";
     ambientElement = null;
   }
@@ -801,13 +801,7 @@ export function setAmbient(path: string, volume: number) {
 
   if (path) {
     if (!ambientElement || ambientPath !== path) {
-      if (ambientElement) {
-        try {
-          ambientElement.pause();
-        } catch {
-          // already paused
-        }
-      }
+      if (ambientElement) retireMediaElement(ambientElement);
       if (ambientVoices && audioCtx) {
         fadeOutTrack(ambientVoices, AMBIENT_RAMP_SECONDS);
         ambientVoices = null;
@@ -816,13 +810,16 @@ export function setAmbient(path: string, volume: number) {
       const element = new Audio(path);
       element.loop = true;
       element.crossOrigin = "anonymous";
-      element.volume = target;
       ambientElement = element;
       ambientPath = path;
-      void ambientElement.play().catch(() => {});
+      routeMediaThroughCare(element);
+      setMediaLevel(element, target);
+      void element.play().catch(() => {});
       return;
     }
-    ambientElement.volume = target;
+    // A loop that started before the context was running joins the care chain now.
+    routeMediaThroughCare(ambientElement);
+    setMediaLevel(ambientElement, target, AMBIENT_RAMP_SECONDS);
     if (target > 0) void ambientElement.play().catch(() => {});
     return;
   }
@@ -833,11 +830,7 @@ export function setAmbient(path: string, volume: number) {
   if (!ctx || !masterGain) return;
 
   if (ambientElement) {
-    try {
-      ambientElement.pause();
-    } catch {
-      // already paused
-    }
+    retireMediaElement(ambientElement);
     ambientElement = null;
     ambientPath = "";
   }
@@ -936,13 +929,13 @@ function applyDuck(amount: number, durationMs: number) {
   if (dipScale >= 1 || durationMs <= 0) return;
 
   if (bedElement && bedTargetVolume > 0) {
-    duckElementVolume(bedElement, bedTargetVolume, dipScale, durationMs);
+    duckMediaElement(bedElement, bedTargetVolume, dipScale, durationMs);
   }
   if (bedGain && bedTargetVolume > 0) {
     duckAudioParam(bedGain.gain, bedTargetVolume, dipScale, durationMs);
   }
   if (ambientElement && ambientTargetVolume > 0) {
-    duckElementVolume(ambientElement, ambientTargetVolume, dipScale, durationMs);
+    duckMediaElement(ambientElement, ambientTargetVolume, dipScale, durationMs);
   }
   if (ambientGain && ambientTargetVolume > 0) {
     duckAudioParam(ambientGain.gain, ambientTargetVolume, dipScale, durationMs);
@@ -1001,6 +994,109 @@ export function playCoinCount(spec: { duration_ms: number; tick_hz: number; pitc
     osc.stop(at + 0.09);
     track.oscillators.push(osc);
   }
+}
+
+// --- routed media (clip soundtracks and file loops under the care chain) -------
+//
+// An HTML media element plays straight to the speakers, past the care chain.
+// Routing it into the graph puts its audio under the same softening and bass
+// warmth as the synthesized voices. Once routed, the element is levelled by its
+// route gain and element.volume stays at unity, because Safari ignores
+// element.volume after a source is routed. Routing waits for a running context:
+// a suspended one would silence the element, so it keeps playing directly and
+// the caller retries on its next directive.
+
+interface MediaRoute {
+  source: MediaElementAudioSourceNode;
+  level: GainNode;
+}
+
+/** Put an element's audio under the care chain. Returns true once it is routed. */
+function routeMediaThroughCare(element: HTMLMediaElement): boolean {
+  if (mediaRoutes.has(element)) return true;
+  const ctx = getAudioContext();
+  if (!ctx || !masterGain || ctx.state !== "running") return false;
+  try {
+    const level = ctx.createGain();
+    // Carry over the level the element already plays at, then take over.
+    level.gain.value = element.muted ? 0 : element.volume;
+    const source = ctx.createMediaElementSource(element);
+    source.connect(level);
+    level.connect(masterGain);
+    element.volume = 1;
+    mediaRoutes.set(element, { source, level });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Route the clip on screen through the care chain. Clips are fresh elements per
+ * directive, so the previous clip's route is retired first.
+ */
+export function routeClipThroughCare(element: HTMLMediaElement): boolean {
+  if (clipElement && clipElement !== element) retireMediaElement(clipElement);
+  clipElement = element;
+  return routeMediaThroughCare(element);
+}
+
+/**
+ * Stop an element for good and drop its care route. Only for elements being
+ * discarded: a routed element goes silent once its source is disconnected.
+ */
+function retireMediaElement(element: HTMLMediaElement) {
+  try {
+    element.pause();
+  } catch {
+    // already stopped
+  }
+  const route = mediaRoutes.get(element);
+  if (!route) return;
+  mediaRoutes.delete(element);
+  try {
+    route.source.disconnect();
+    route.level.disconnect();
+  } catch {
+    // already disconnected
+  }
+}
+
+/** Set an element's output level: its route gain once routed, element.volume otherwise. */
+function setMediaLevel(element: HTMLMediaElement, value: number, rampSeconds = 0) {
+  const target = Math.min(1, Math.max(0, value));
+  const route = mediaRoutes.get(element);
+  if (!route || !audioCtx) {
+    element.volume = target;
+    return;
+  }
+  const now = audioCtx.currentTime;
+  route.level.gain.cancelScheduledValues(now);
+  if (rampSeconds > 0) {
+    route.level.gain.setTargetAtTime(target, now, rampSeconds / 3);
+  } else {
+    route.level.gain.setValueAtTime(target, now);
+  }
+}
+
+/** Dip a looped element's level and glide it back: gain automation when routed. */
+function duckMediaElement(element: HTMLMediaElement, target: number, dipScale: number, holdMs: number) {
+  const route = mediaRoutes.get(element);
+  if (route) {
+    duckAudioParam(route.level.gain, target, dipScale, holdMs);
+    return;
+  }
+  duckElementVolume(element, target, dipScale, holdMs);
+}
+
+/**
+ * Wake the audio context from a user gesture. Clips and file loops only join the
+ * care chain while the context is running, and browsers only start it from a
+ * gesture, so the spin and button handlers call this first.
+ */
+export function primeAcousticCare() {
+  if (!engineGate) return;
+  getAudioContext();
 }
 
 // --- automatic acoustic care -------------------------------------------
@@ -1136,7 +1232,7 @@ export function stopAll() {
 /** Fixed two-note win jingle for the engine-off baseline player. */
 export function playPlainWin() {
   const ctx = getAudioContext();
-  if (!ctx || !masterGain) return;
+  if (!ctx || !plainBus) return;
   const now = ctx.currentTime;
   [523.25, 659.25, 783.99].forEach((freq, i) => {
     const osc = ctx.createOscillator();
@@ -1147,7 +1243,7 @@ export function playPlainWin() {
     gain.gain.linearRampToValueAtTime(0.14, now + i * 0.09 + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.09 + 0.32);
     osc.connect(gain);
-    gain.connect(masterGain!);
+    gain.connect(plainBus!);
     osc.start(now + i * 0.09);
     osc.stop(now + i * 0.09 + 0.34);
   });
@@ -1156,7 +1252,7 @@ export function playPlainWin() {
 /** Fixed dull buzz for the engine-off baseline player. */
 export function playPlainLoss() {
   const ctx = getAudioContext();
-  if (!ctx || !masterGain) return;
+  if (!ctx || !plainBus) return;
   const now = ctx.currentTime;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -1167,7 +1263,7 @@ export function playPlainLoss() {
   gain.gain.linearRampToValueAtTime(0.08, now + 0.02);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
   osc.connect(gain);
-  gain.connect(masterGain!);
+  gain.connect(plainBus!);
   osc.start(now);
   osc.stop(now + 0.42);
   window.setTimeout(() => {
@@ -1182,7 +1278,7 @@ export function playPlainLoss() {
 /** One uniform mechanical tick for every reel stop in plain mode — no tiers. */
 export function playPlainReelTick() {
   const ctx = getAudioContext();
-  if (!ctx || !masterGain) return;
+  if (!ctx || !plainBus) return;
   const now = ctx.currentTime;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -1192,7 +1288,7 @@ export function playPlainReelTick() {
   gain.gain.setValueAtTime(0.07, now);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
   osc.connect(gain);
-  gain.connect(masterGain);
+  gain.connect(plainBus);
   osc.start(now);
   osc.stop(now + 0.06);
   window.setTimeout(() => {

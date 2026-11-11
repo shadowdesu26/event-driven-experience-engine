@@ -198,7 +198,10 @@ Full detail, including the pipeline order and the two-phase spin lifecycle, is i
   refractory (`15s/10s/5s` for severity `1/2/3`) plus a rolling budget of three
   ladders per minute per session. A denied probe answers `phase: idle` with an
   audit message instead of silently dropping the seat's drama budget. Higher
-  severity cuts through a shorter predecessor's cooldown.
+  severity cuts through a shorter predecessor's cooldown. The same gate holds a
+  resolved `NEAR_WIN`'s tension riser when no ladder was granted for that spin,
+  so back-to-back near-wins no longer stack riser after riser; a held riser
+  lands as the neutral reel clip, silent.
 - **Mood fusion** — the drought and tempo rewrite a tease before it is
   scheduled: a losing streak (`drought ≥ mild`) escalates weak teases one
   severity tier (`1→2`, `2→3`), while a `rapid` player with no drought gets no
@@ -216,7 +219,9 @@ Full detail, including the pipeline order and the two-phase spin lifecycle, is i
   the mix: the treble ceiling glides down and bass warmth glides up over the
   first 60 resolved spins (`setTargetAtTime` throughout, never stepped), so
   hours of play never build up listening fatigue. The engine gate itself stays
-  instant.
+  instant. The chain also takes the clip's own soundtrack and any shipped bed or
+  ambient file, so the softening covers the audio the player hears most; the
+  engine-off baseline bypasses it.
 
 ## API Endpoints (middleware)
 

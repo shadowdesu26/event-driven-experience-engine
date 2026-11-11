@@ -14,7 +14,7 @@ import {
   type GripResponse,
   type LightProgram,
 } from "@/app/lib/api";
-import { setEngineEnabled } from "@/app/lib/experience";
+import { primeAcousticCare, setEngineEnabled } from "@/app/lib/experience";
 import { plainDirective } from "@/app/lib/plain";
 
 export default function Home() {
@@ -42,12 +42,17 @@ export default function Home() {
         setSuspense(null);
         setError(null);
         setLight(DEFAULT_LIGHT_PROGRAM);
+        // A clip already routed through the care chain cannot be unrouted, so
+        // swap in a fresh element: the baseline clip plays bare.
+        setPlaybackKey((key) => key + 1);
       }
       return next;
     });
   }, []);
 
   const handleFire = useCallback(async (eventInput: GripEventInput) => {
+    // Runs inside the click for manual triggers, so the care chain can start.
+    if (engineOn) primeAcousticCare();
     const eventType = typeof eventInput === "string" ? eventInput : eventInput.event_type;
     const isString = typeof eventInput === "string";
     const bet = isString ? 25 : eventInput.bet_amount ?? 25;

@@ -98,7 +98,8 @@ class SessionState:
     last_event_at: float | None = None
     last_suspense_at: float | None = None
     pending_suspense: dict | None = field(default=None)
-    # Rolling timestamps of armed suspense ladders, for the tease-budget policy.
+    # Rolling timestamps of armed teases (cue ladders and resolved tension risers),
+    # for the tease-budget policy.
     suspense_times: list[float] = field(default_factory=list)
 
     @property
@@ -136,13 +137,20 @@ class SessionState:
 
     # -- transitions -----------------------------------------------------
 
-    def open_suspense(self, program: dict) -> None:
-        now = time.time()
-        self.pending_suspense = program
+    def record_tease(self, now: float) -> None:
+        """Log an armed tease against the fatigue gate.
+
+        A cue ladder and a resolved tension riser are both teases, so both feed
+        the same refractory clock and rolling budget.
+        """
         self.last_suspense_at = now
         # Keep only the recent window; the budget policies prune off it.
         self.suspense_times = [t for t in self.suspense_times if now - t <= 120.0]
         self.suspense_times.append(now)
+
+    def open_suspense(self, program: dict) -> None:
+        self.pending_suspense = program
+        self.record_tease(time.time())
 
     def consume_suspense(self) -> dict | None:
         program, self.pending_suspense = self.pending_suspense, None

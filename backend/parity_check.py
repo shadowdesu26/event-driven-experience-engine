@@ -135,6 +135,25 @@ SCENARIOS: list[tuple[str, list[tuple]]] = [
             ("JACKPOT", "resolved", 2500, 25, ["7"] * 5, 9, 0),
         ],
     ),
+    (
+        "tension cooldown (back-to-back resolved NEAR_WIN risers)",
+        [
+            ("GAME_START", "resolved", 0, 25, ["🍒", "7", "BAR", "⭐", "💎"], 0, 0),
+            ("NEAR_WIN", "resolved", 0, 25, ["7", "7", "7", "7", "🍒"], 2, 0),
+            ("NEAR_WIN", "resolved", 0, 25, ["7", "7", "7", "7", "🍒"], 4, 0),
+            ("NEAR_WIN", "resolved", 0, 25, ["7", "7", "7", "7", "🍒"], 6, 0),
+        ],
+    ),
+    (
+        "denied probe holds the riser (probe -> release -> denied probe -> resolve)",
+        [
+            ("GAME_START", "resolved", 0, 25, ["🍒", "7", "BAR", "⭐", "💎"], 0, 0),
+            ("NEAR_WIN", "reels_spinning", 0, 25, ["7", "7", "7", "7", "🍒"], 2, 0),
+            ("NEAR_WIN", "resolved", 0, 25, ["7", "7", "7", "7", "🍒"], 6, 0),
+            ("NEAR_WIN", "reels_spinning", 0, 25, ["7", "7", "7", "7", "🍒"], 8, 0),
+            ("NEAR_WIN", "resolved", 0, 25, ["7", "7", "7", "7", "🍒"], 12, 0),
+        ],
+    ),
 ]
 
 

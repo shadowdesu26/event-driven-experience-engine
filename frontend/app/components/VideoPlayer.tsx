@@ -8,6 +8,7 @@ import {
   ingestDirective,
   playPlainLoss,
   playPlainWin,
+  routeClipThroughCare,
   runCues,
   setAmbient,
   stopAll,
@@ -64,6 +65,9 @@ export default function VideoPlayer({
     const video = videoRef.current;
     if (video) {
       video.load();
+      // Engine on: the clip's own soundtrack joins the care chain. Engine off
+      // keeps the clip bare, matching the A/B baseline.
+      if (engineOn) routeClipThroughCare(video);
       video.play().catch(() => {});
     }
     if (!response) return;

@@ -98,13 +98,17 @@ export class SessionState {
 
   // -- transitions -----------------------------------------------------
 
-  open_suspense(program: SuspenseProgram): void {
-    const now = Date.now() / 1000;
-    this.pending_suspense = program;
+  /** Log an armed tease against the fatigue gate (ladder or tension riser alike). */
+  record_tease(now: number): void {
     this.last_suspense_at = now;
     // Keep only the recent window; the budget policies prune off it.
     this.suspense_times = this.suspense_times.filter((t) => now - t <= 120.0);
     this.suspense_times.push(now);
+  }
+
+  open_suspense(program: SuspenseProgram): void {
+    this.pending_suspense = program;
+    this.record_tease(Date.now() / 1000);
   }
 
   consume_suspense(): SuspenseProgram | null {

@@ -17,6 +17,7 @@ import {
   playPlainReelTick,
   playPlainWin,
   playReelLand,
+  primeAcousticCare,
 } from "@/app/lib/experience";
 import { plainStingDirection } from "@/app/lib/plain";
 
@@ -337,6 +338,8 @@ export default function SlotMachine({
 
   const handleSpin = useCallback(() => {
     if (spinning || busy) return;
+    // Inside the click: the care chain must be running before the clip lands.
+    if (engineOn) primeAcousticCare();
 
     const eventType = SPIN_POOL[Math.floor(Math.random() * SPIN_POOL.length)];
     const resultCells = buildResultCells(eventType);
